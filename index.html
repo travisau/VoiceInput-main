@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoiceInput AI</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div class="background-effects">
+      <div class="glow-orb orb-1"></div>
+      <div class="glow-orb orb-2"></div>
+    </div>
+    
+    <main class="container glass-panel">
+      <!-- Setup Overlay for Missing Dependencies -->
+      <div id="setup-overlay" class="setup-overlay hidden">
+        <div class="setup-wizard">
+          <h2>🎙️ VoiceInput Setup Wizard</h2>
+          <p class="setup-desc">Welcome! We need to download the AI Engine and Model files. They will be stored in your AppData directory.</p>
+          
+          <!-- Setup Storage Configuration -->
+          <div class="setup-group">
+            <label id="lbl-setup-storage">Storage Path / 安裝儲存路徑</label>
+            <div class="input-wrapper" style="width: 100%;">
+              <input type="text" id="setup-storage-path" readonly placeholder="Default (AppData)" style="flex-grow: 1;" />
+              <button id="setup-browse-storage-btn" class="secondary-btn">Browse...</button>
+            </div>
+          </div>
+
+          <!-- Setup Method Toggle Tabs -->
+          <div class="setup-method-tabs">
+            <button class="setup-tab-btn active" data-method="download" id="btn-setup-tab-download">Online Download</button>
+            <button class="setup-tab-btn" data-method="import" id="btn-setup-tab-import">Local Import</button>
+          </div>
+
+          <!-- Method A: Download Content -->
+          <div id="method-download-content" class="setup-method-content active">
+            <div class="setup-item" style="margin-bottom: 12px; text-align: left;">
+              <label for="setup-engine-select" id="lbl-setup-engine-select">Engine Edition</label>
+              <select id="setup-engine-select" style="width: 100%;">
+                <option value="cpu" id="opt-setup-cpu">CPU Edition (Highly Compatible / 4.4MB)</option>
+                <option value="cuda" id="opt-setup-cuda">NVIDIA GPU Edition (CUDA / ~150MB)</option>
+              </select>
+            </div>
+
+            <div class="dependency-list">
+              <div class="dependency-item" id="dep-engine">
+                <div class="dep-info">
+                  <span class="dep-title">AI Engine (CPU Edition)</span>
+                  <span class="dep-status" id="dep-engine-status">Checking...</span>
+                </div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="dep-engine-bar" style="width: 0%"></div>
+                </div>
+                <span class="progress-text" id="dep-engine-text"></span>
+              </div>
+
+              <div class="dependency-item" id="dep-model">
+                <div class="dep-info">
+                  <span class="dep-title">AI Model (Large-v3 quantized)</span>
+                  <span class="dep-status" id="dep-model-status">Checking...</span>
+                </div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="dep-model-bar" style="width: 0%"></div>
+                </div>
+                <span class="progress-text" id="dep-model-text"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Method B: Local Import Content -->
+          <div id="method-import-content" class="setup-method-content">
+            <div class="import-fields">
+              <div class="setup-item">
+                <label id="lbl-import-engine">Engine Zip File (.zip) / 選擇引擎壓縮包</label>
+                <div class="input-wrapper" style="width: 100%;">
+                  <input type="text" id="import-engine-path" readonly placeholder="No file selected / 未選擇檔案" style="flex-grow: 1;" />
+                  <button id="import-browse-engine-btn" class="secondary-btn">Browse...</button>
+                </div>
+              </div>
+
+              <div class="setup-item">
+                <label id="lbl-import-model">Model File (.bin) / 選擇語音模型檔</label>
+                <div class="input-wrapper" style="width: 100%;">
+                  <input type="text" id="import-model-path" readonly placeholder="No file selected / 未選擇檔案" style="flex-grow: 1;" />
+                  <button id="import-browse-model-btn" class="secondary-btn">Browse...</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="setup-footer">
+            <button id="start-download-btn" class="primary-btn">Download & Setup</button>
+            <button id="start-import-btn" class="primary-btn hidden">Import & Install</button>
+          </div>
+        </div>
+      </div>
+
+      <header>
+        <div class="logo-container">
+          <div class="mic-icon">🎙️</div>
+          <h1>VoiceInput <span class="accent">AI</span></h1>
+        </div>
+        <div class="status-badge" id="status-badge">
+          <span class="status-dot"></span>
+          <span id="status-text">Ready</span>
+        </div>
+      </header>
+
+      <!-- Tabs Navigation -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="settings-tab">
+          <span>⚙️</span> Settings
+        </button>
+        <button class="tab-btn" data-tab="learning-tab">
+          <span>📝</span> Learning
+        </button>
+        <button class="tab-btn" data-tab="logs-tab">
+          <span>🖥️</span> Engine Logs
+        </button>
+      </div>
+
+      <!-- Tab 1: Settings -->
+      <div id="settings-tab" class="tab-content active">
+        <section class="settings-grid">
+          <!-- Hotkey Settings -->
+          <div class="setting-group">
+            <h2><span class="icon">⌨️</span> Hotkey Settings</h2>
+            
+            <div class="setting-item">
+              <label for="hotkey" id="lbl-hotkey">Activation Key</label>
+              <div class="input-wrapper">
+                <input type="text" id="hotkey" placeholder="e.g. ctrl+f9" />
+                <button id="save-hotkey-btn" class="secondary-btn">Save</button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <label for="hotkey-mode" id="lbl-hotkey-mode">Press Mode</label>
+              <select id="hotkey-mode">
+                <option value="hold">Hold to Record</option>
+                <option value="toggle">Click to Toggle</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label for="sound-mode" id="lbl-sound-mode">Sound Effects</label>
+              <select id="sound-mode">
+                <option value="modern">Modern Synth (New)</option>
+                <option value="retro">Retro Beeps (Old)</option>
+                <option value="off">Muted (Silent)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label for="app-language" id="lbl-app-language">UI Language</label>
+              <select id="app-language">
+                <option value="zh">繁體中文</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- AI Engine Settings -->
+          <div class="setting-group">
+            <h2><span class="icon">🧠</span> AI Engine Settings</h2>
+            
+            <div class="setting-item">
+              <label for="cantonese-mode" class="toggle-label">
+                <span id="lbl-cantonese-title">Cantonese Mode (廣東話)</span>
+                <p class="desc" id="lbl-cantonese-desc">Preserves spoken Cantonese vocabulary</p>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="cantonese-mode">
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <label for="device-select" id="lbl-device-select">Device</label>
+              <select id="device-select">
+                <option value="cpu">CPU (High Compatibility)</option>
+                <option value="cuda">NVIDIA GPU (CUDA)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label for="model-select" id="lbl-model-select">AI Model</label>
+              <select id="model-select">
+                <option value="large-v3">Whisper Large v3 (Highest Accuracy)</option>
+                <option value="large-v3-turbo">Whisper Large v3 Turbo (Faster)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label for="chinese-output" id="lbl-chinese-output">Text Output format</label>
+              <select id="chinese-output">
+                <option value="traditional_tw">Traditional Chinese (繁體中文)</option>
+                <option value="simplified_cn">Simplified Chinese (简体中文)</option>
+                <option value="none">No Conversion</option>
+              </select>
+            </div>
+
+            <div class="setting-item full-width">
+              <label id="lbl-storage-path">Storage Path</label>
+              <div class="input-wrapper">
+                <input type="text" id="storage-path" readonly placeholder="Default (AppData)" />
+                <button id="browse-storage-btn" class="secondary-btn">Browse...</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <footer>
+          <button id="apply-btn" class="primary-btn">Save Settings</button>
+          <div class="credits-footer" id="credits-text">
+            Designed by Travis Au | Email: contact@travis-studio.com
+          </div>
+        </footer>
+      </div>
+
+      <!-- Tab 2: Learning & Correction -->
+      <div id="learning-tab" class="tab-content">
+        <section class="settings-grid">
+          <!-- Correct Last Transcription -->
+          <div class="setting-group">
+            <h2 id="title-correct-last"><span class="icon">✏️</span> Correct Last Transcription</h2>
+            
+            <div class="setting-item full-width">
+              <label id="lbl-last-transcription">Last Transcription</label>
+              <div class="last-trans-box" id="last-transcription-text">(No sentences transcribed yet)</div>
+            </div>
+
+            <div class="setting-item full-width">
+              <label for="corrected-text" id="lbl-corrected-text">Corrected Text</label>
+              <div class="input-wrapper" style="width: 100%;">
+                <input type="text" id="corrected-text" placeholder="Make corrections here..." style="flex-grow: 1;" />
+                <button id="learn-btn" class="secondary-btn">Learn</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- AI Learning & Correction -->
+          <div class="setting-group">
+            <h2 id="title-learning"><span class="icon">📝</span> AI Learning & Correction</h2>
+            
+            <div class="setting-item full-width">
+              <label for="custom-prompt" id="lbl-custom-prompt">Custom Vocabulary Prompt</label>
+              <input type="text" id="custom-prompt" placeholder="e.g. Travis, Travis Studio, 廣東話" style="width: 100%;" />
+              <p class="desc" id="lbl-custom-prompt-desc">Teach Whisper new words by listing them here (comma separated)</p>
+            </div>
+
+            <div class="setting-item full-width">
+              <label for="text-replacements" id="lbl-text-replacements">Text Replacements</label>
+              <textarea id="text-replacements" rows="4" placeholder="e.g. 崔斯 -> Travis&#10;特快司 -> Travis"></textarea>
+              <p class="desc" id="lbl-text-replacements-desc">Correct persistent mistakes automatically (one rule per line: wrong -> correct)</p>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Backup & Migration -->
+          <div class="setting-group">
+            <h2 id="title-backup"><span class="icon">💾</span> Data Backup & Migration</h2>
+            <div class="setting-item full-width">
+              <p class="desc" id="lbl-backup-desc" style="margin-bottom: 8px;">Export your configurations and learned vocabulary to migrate them to a new computer, or import them back.</p>
+              <div class="btn-group" style="display: flex; gap: 10px; width: 100%;">
+                <button id="export-config-btn" class="secondary-btn" style="flex: 1;">Export Data / 匯出資料</button>
+                <button id="import-config-btn" class="secondary-btn" style="flex: 1;">Import Data / 匯入資料</button>
+              </div>
+            </div>
+          </div>
+        </section>
+        
+        <footer>
+          <button id="apply-learning-btn" class="primary-btn">Save Learning Rules</button>
+          <div class="credits-footer" id="credits-text-learning">
+            Designed by Travis Au | Email: contact@travis-studio.com
+          </div>
+        </footer>
+      </div>
+
+      <!-- Tab 3: Logs -->
+      <div id="logs-tab" class="tab-content">
+        <section class="logs-section">
+          <h2><span class="icon">🖥️</span> Engine Status Logs</h2>
+          <div class="logs-container" id="logs-container">
+            <div class="log-line system-msg">Loading engine logs...</div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>
