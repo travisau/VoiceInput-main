@@ -61,6 +61,7 @@ const startImportBtn = document.getElementById("start-import-btn") as HTMLButton
 const exportConfigBtn = document.getElementById("export-config-btn") as HTMLButtonElement;
 const importConfigBtn = document.getElementById("import-config-btn") as HTMLButtonElement;
 const setupEngineSelect = document.getElementById("setup-engine-select") as HTMLSelectElement;
+const reinstallWizardBtn = document.getElementById("reinstall-wizard-btn") as HTMLButtonElement;
 
 let lastTransText = "";
 
@@ -141,7 +142,8 @@ const translations: Record<string, Record<string, string>> = {
     "title-backup": "💾 資料備份與移轉",
     "lbl-backup-desc": "您可以匯出所有的系統設定、啟動快速鍵、以及自定義學習詞彙與修正對照表。在新電腦上匯入即可無縫接軌！",
     "btn-export": "匯出資料 / Export Data",
-    "btn-import": "匯入資料 / Import Data"
+    "btn-import": "匯入資料 / Import Data",
+    "btn-reinstall": "⚙️ 啟動安裝與設定精靈"
   },
   en: {
     "tab-settings": "⚙️ Settings",
@@ -219,7 +221,8 @@ const translations: Record<string, Record<string, string>> = {
     "title-backup": "💾 Data Backup & Migration",
     "lbl-backup-desc": "Export all system configurations, hotkeys, custom vocabulary prompts, and text replacement rules to migrate them to a new computer, or import them back.",
     "btn-export": "Export Data",
-    "btn-import": "Import Data"
+    "btn-import": "Import Data",
+    "btn-reinstall": "⚙️ Launch Setup Wizard"
   }
 };
 
@@ -317,6 +320,9 @@ function updateUILanguage(lang: string) {
   if (storagePathInput) storagePathInput.placeholder = dict["placeholder-storage"];
   const browseStorageBtn = document.getElementById("browse-storage-btn") as HTMLButtonElement;
   if (browseStorageBtn) browseStorageBtn.textContent = dict["btn-browse"];
+  
+  const reinstallWizardBtnEl = document.getElementById("reinstall-wizard-btn");
+  if (reinstallWizardBtnEl) reinstallWizardBtnEl.textContent = dict["btn-reinstall"];
   
   const creditsText = document.getElementById("credits-text");
   if (creditsText) creditsText.textContent = dict["credits-text"];
@@ -473,7 +479,7 @@ async function saveConfig() {
   }
 }
 
-async function runDependencyChecks() {
+async function runDependencyChecks(forceShow = false) {
   const overlay = document.getElementById("setup-overlay") as HTMLDivElement;
   const status = await invoke<DependencyStatus>("check_dependencies");
   console.log("Dependency checks:", status);
@@ -485,7 +491,7 @@ async function runDependencyChecks() {
   const currentLang = appLanguageSelect.value || "zh";
   const dict = translations[currentLang] || translations["zh"];
 
-  if (status.engine_exists && status.model_exists) {
+  if (status.engine_exists && status.model_exists && !forceShow) {
     overlay.classList.add("hidden");
     return;
   }
@@ -837,6 +843,12 @@ window.addEventListener("DOMContentLoaded", () => {
       console.error("Failed to select directory:", err);
     }
   });
+
+  if (reinstallWizardBtn) {
+    reinstallWizardBtn.addEventListener("click", () => {
+      runDependencyChecks(true);
+    });
+  }
 
   if (exportConfigBtn) {
     exportConfigBtn.addEventListener("click", async () => {

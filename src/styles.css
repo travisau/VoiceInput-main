@@ -446,7 +446,7 @@ input:checked + .slider:before {
 }
 
 .logs-container {
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--input-bg);
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   padding: 12px 14px;
@@ -456,6 +456,7 @@ input:checked + .slider:before {
   font-size: 11px;
   line-height: 1.6;
   color: #a9a9b3;
+  user-select: text;
 }
 
 .log-line {
