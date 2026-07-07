@@ -571,8 +571,8 @@ async function runDependencyChecks() {
         engineStatus.style.color = "var(--accent-blue)";
         
         const engineUrl = selectedEngine === "cuda" 
-          ? "https://github.com/travisau/VoiceInput/releases/download/v0.1.0/whisper-server-cuda.zip"
-          : "https://github.com/travisau/VoiceInput/releases/download/v0.1.0/whisper-server-cpu.zip";
+          ? "https://github.com/travisau/VoiceInput-main/releases/download/v0.1.0/whisper-server-cuda.zip"
+          : "https://github.com/travisau/VoiceInput-main/releases/download/v0.1.0/whisper-server-cpu.zip";
         
         await download(
           engineUrl,
