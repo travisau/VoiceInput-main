@@ -73,7 +73,10 @@ body {
 
 /* Glassmorphism Container */
 .container {
-  width: 95%;
+  position: relative;
+  width: calc(100% - 24px);
+  height: calc(100vh - 24px);
+  margin: 12px;
   max-width: 500px;
   background: var(--panel-bg);
   backdrop-filter: blur(20px);
@@ -82,6 +85,10 @@ body {
   border-radius: 16px;
   padding: 16px 20px;
   box-shadow: 0 24px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 /* Header */
@@ -161,7 +168,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 415px;
+  flex-grow: 1;
   overflow-y: auto;
   padding-right: 6px;
 }
@@ -414,12 +421,13 @@ input:checked + .slider:before {
 
 .tab-content {
   display: none;
-  height: 390px; /* Lock both tabs to the exact same height */
 }
 
 .tab-content.active {
   display: flex;
   flex-direction: column;
+  flex-grow: 1;
+  overflow: hidden;
 }
 
 #settings-tab.active {
@@ -497,12 +505,32 @@ input:checked + .slider:before {
   height: 100%;
   z-index: 1000;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  justify-content: flex-start;
   align-items: center;
   border-radius: 16px;
   background: rgba(10, 10, 15, 0.95);
   backdrop-filter: blur(25px);
-  padding: 24px;
+  padding: 24px 20px;
+  overflow-y: auto;
+}
+
+/* Custom Scrollbar for Setup Overlay */
+.setup-overlay::-webkit-scrollbar {
+  width: 5px;
+}
+
+.setup-overlay::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.setup-overlay::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+.setup-overlay::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .setup-wizard {
@@ -510,6 +538,24 @@ input:checked + .slider:before {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.setup-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.setup-close-btn:hover {
+  color: #ff4a4a;
+  transform: scale(1.1);
 }
 
 .setup-wizard h2 {
@@ -701,4 +747,78 @@ textarea:focus {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+.replacement-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.replacement-item-row:last-child {
+  border-bottom: none;
+}
+
+.replacement-item-text {
+  font-size: 12px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  word-break: break-all;
+}
+
+.replacement-item-arrow {
+  color: var(--text-secondary);
+}
+
+.replacement-delete-btn {
+  background: transparent;
+  color: #ff4a4a;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  transition: all 0.2s ease;
+}
+
+.replacement-delete-btn:hover {
+  color: #ff1a1a;
+  transform: scale(1.1);
+}
+
+#replacements-list-container::-webkit-scrollbar {
+  width: 5px;
+}
+
+#replacements-list-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#replacements-list-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+#replacements-list-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+p.desc {
+  font-size: 11px !important;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+
+.inline-edit-input {
+  background: var(--input-bg);
+  border: 1px solid var(--accent-blue);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
 }

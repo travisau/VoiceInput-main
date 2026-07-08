@@ -120,6 +120,7 @@ pub struct Config {
     pub storage_path: String,
     pub custom_prompt: String,
     pub text_replacements: String,
+    pub show_settings_on_startup: bool,
 }
 
 impl Default for Config {
@@ -141,6 +142,7 @@ impl Default for Config {
             storage_path: "".to_string(),
             custom_prompt: "".to_string(),
             text_replacements: "".to_string(),
+            show_settings_on_startup: true,
         }
     }
 }
@@ -160,6 +162,47 @@ fn get_config_path() -> PathBuf {
         path
     } else {
         get_exe_dir().join("config.json")
+    }
+}
+
+fn set_startup_enabled(enabled: bool) -> Result<(), String> {
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe path: {}", e))?;
+    let exe_path_str = current_exe.to_string_lossy();
+    
+    if enabled {
+        let value = format!("\"{}\"", exe_path_str);
+        let output = Command::new("reg")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .arg("add")
+            .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .arg("/v")
+            .arg("VoiceInput")
+            .arg("/t")
+            .arg("REG_SZ")
+            .arg("/d")
+            .arg(&value)
+            .arg("/f")
+            .output();
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).to_string()),
+            Err(e) => Err(e.to_string()),
+        }
+    } else {
+        let output = Command::new("reg")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .arg("delete")
+            .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .arg("/v")
+            .arg("VoiceInput")
+            .arg("/f")
+            .output();
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
     }
 }
 
@@ -426,7 +469,10 @@ pub struct AppState {
 }
 
 fn send_to_whisper(wav_path: &str, cantonese_mode: bool) -> Option<String> {
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(None)
+        .build()
+        .ok()?;
     let file_bytes = std::fs::read(wav_path).ok()?;
     
     let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
@@ -523,7 +569,14 @@ fn clean_hallucinations(text: &str) -> String {
 fn apply_text_replacements(text: &str, replacements_raw: &str) -> String {
     let mut result = text.to_string();
     for line in replacements_raw.lines() {
-        let parts: Vec<&str> = line.split("->").map(|s| s.trim()).collect();
+        let parts: Vec<&str> = if line.contains("->") {
+            line.split("->").map(|s| s.trim()).collect()
+        } else if line.contains("→") {
+            line.split("→").map(|s| s.trim()).collect()
+        } else {
+            Vec::new()
+        };
+        
         if parts.len() == 2 && !parts[0].is_empty() {
             result = result.replace(parts[0], parts[1]);
         }
@@ -599,6 +652,7 @@ fn handle_recording_stopped(
                 
                 add_log(&app_handle_clone, format!("Transcription: {} (Took: {:.2?}s)", text, elapsed));
                 paste_text(&text);
+                let _ = app_handle_clone.emit("transcription-complete", &text);
                 play_audio_cue("success", &sound_mode_clone);
             }
         } else {
@@ -683,10 +737,10 @@ fn restart_whisper_server(state: &AppState) {
         };
 
         if final_exe.exists() && final_model.exists() {
-            let (cantonese_mode, device_mode, custom_prompt) = if let Ok(cfg) = state.config.lock() {
-                (cfg.cantonese_mode, cfg.device.clone(), cfg.custom_prompt.clone())
+            let (cantonese_mode, device_mode, custom_prompt, cpu_threads) = if let Ok(cfg) = state.config.lock() {
+                (cfg.cantonese_mode, cfg.device.clone(), cfg.custom_prompt.clone(), cfg.cpu_threads)
             } else {
-                (false, "cpu".to_string(), "".to_string())
+                (false, "cpu".to_string(), "".to_string(), 0)
             };
  
             let mut prompt = if cantonese_mode {
@@ -699,7 +753,7 @@ fn restart_whisper_server(state: &AppState) {
                 prompt = format!("{} 常用字詞：{}。", prompt, custom_prompt.trim());
             }
 
-            add_log(&state.app_handle, format!("Starting whisper server with model: {:?} on {}", final_model, device_mode));
+            add_log(&state.app_handle, format!("Starting whisper server with model: {:?} on {}, threads: {}", final_model, device_mode, cpu_threads));
             
             let mut cmd = Command::new(&final_exe);
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: Hides console window
@@ -708,10 +762,12 @@ fn restart_whisper_server(state: &AppState) {
                .arg("--prompt").arg(prompt)
                .arg("--carry-initial-prompt");
 
-            if device_mode == "cuda" {
-                cmd.arg("-ngl").arg("99");
-            } else {
-                cmd.arg("-ngl").arg("0");
+            if cpu_threads > 0 {
+                cmd.arg("-t").arg(cpu_threads.to_string());
+            }
+
+            if device_mode == "cpu" {
+                cmd.arg("-ng");
             }
 
             match cmd
@@ -768,18 +824,54 @@ fn restart_whisper_server(state: &AppState) {
     }
 }
 
+fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>, lang: &str) -> Result<tauri::menu::Menu<R>, tauri::Error> {
+    let (toggle_txt, settings_txt, quit_txt) = if lang == "zh" {
+        ("開始 / 停止錄音", "設定", "退出")
+    } else {
+        ("Start / Stop Recording", "Settings", "Quit")
+    };
+    
+    let toggle_i = MenuItemBuilder::with_id("toggle", toggle_txt).build(app)?;
+    let settings_i = MenuItemBuilder::with_id("settings", settings_txt).build(app)?;
+    let quit_i = MenuItemBuilder::with_id("quit", quit_txt).build(app)?;
+    
+    MenuBuilder::new(app).items(&[&toggle_i, &settings_i, &quit_i]).build()
+}
+
 #[tauri::command]
 fn set_config(state: tauri::State<AppState>, new_config: Config) -> Result<(), String> {
     let mut needs_restart = false;
+    let mut autostart_changed = false;
+    let mut new_autostart = false;
     
     if let Ok(mut cfg) = state.config.lock() {
-        if cfg.cantonese_mode != new_config.cantonese_mode || cfg.model != new_config.model {
+        if cfg.cantonese_mode != new_config.cantonese_mode || 
+           cfg.model != new_config.model ||
+           cfg.cpu_threads != new_config.cpu_threads ||
+           cfg.device != new_config.device
+        {
             needs_restart = true;
+        }
+        if cfg.start_at_login != new_config.start_at_login {
+            autostart_changed = true;
+            new_autostart = new_config.start_at_login;
         }
         *cfg = new_config.clone();
         save_config_file(&cfg)?;
     } else {
         return Err("Failed to lock config".to_string());
+    }
+
+    if autostart_changed {
+        let _ = set_startup_enabled(new_autostart);
+    }
+
+    // Update tray menu dynamically when language changes
+    let app_handle = state.app_handle.clone();
+    if let Some(tray) = app_handle.tray_by_id("main_tray") {
+        if let Ok(new_menu) = build_tray_menu(&app_handle, &new_config.app_language) {
+            let _ = tray.set_menu(Some(new_menu));
+        }
     }
 
     if needs_restart {
@@ -792,6 +884,37 @@ fn set_config(state: tauri::State<AppState>, new_config: Config) -> Result<(), S
 #[tauri::command]
 fn start_engine(state: tauri::State<AppState>) {
     restart_whisper_server(&state);
+}
+
+#[tauri::command]
+fn delete_cuda_files(state: tauri::State<AppState>) -> Result<(), String> {
+    let base_dir = if let Ok(cfg) = state.config.lock() {
+        if !cfg.storage_path.is_empty() {
+            std::path::PathBuf::from(&cfg.storage_path)
+        } else {
+            state.app_data_dir.clone()
+        }
+    } else {
+        state.app_data_dir.clone()
+    };
+    
+    let bin_dir = base_dir.join("bin");
+    if bin_dir.exists() {
+        add_log(&state.app_handle, format!("Deleting CUDA files in: {:?}", bin_dir));
+        // Delete the custom bin folder containing CUDA binaries
+        let _ = std::fs::remove_dir_all(&bin_dir);
+    }
+    
+    // Auto revert device config to cpu
+    if let Ok(mut cfg) = state.config.lock() {
+        cfg.device = "cpu".to_string();
+        save_config_file(&cfg)?;
+    }
+    
+    // Re-launch whisper server in CPU mode
+    restart_whisper_server(&state);
+    
+    Ok(())
 }
 
 #[tauri::command]
@@ -808,6 +931,7 @@ pub struct DependencyStatus {
     pub engine_exists: bool,
     pub model_exists: bool,
     pub appdata_dir: String,
+    pub appdata_engine_exists: bool,
 }
 
 #[tauri::command]
@@ -826,15 +950,17 @@ fn check_dependencies(state: tauri::State<AppState>) -> DependencyStatus {
     let appdata_model = base_dir.join("models").join("ggml-large-v3-q5_0.bin");
     
     let resource_exe = state.resource_dir.join("bin").join("whisper-server.exe");
-    let resource_model = state.resource_dir.join("models").join("ggml-large-v3-q5_0.bin");
+    let _resource_model = state.resource_dir.join("models").join("ggml-large-v3-q5_0.bin");
 
-    let engine_exists = appdata_exe.exists() || resource_exe.exists();
-    let model_exists = appdata_model.exists() || resource_model.exists();
+    let appdata_engine_exists = appdata_exe.exists();
+    let engine_exists = appdata_engine_exists || resource_exe.exists();
+    let model_exists = appdata_model.exists();
     
     DependencyStatus {
         engine_exists,
         model_exists,
         appdata_dir: base_dir.to_string_lossy().to_string(),
+        appdata_engine_exists,
     }
 }
 
@@ -1199,7 +1325,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(shortcut_plugin)
-        .invoke_handler(tauri::generate_handler![greet, get_config, set_config, get_logs, check_dependencies, download_dependency, extract_zip, start_engine, select_directory, select_file, import_local_dependencies, export_config_file, import_config_file])
+        .invoke_handler(tauri::generate_handler![greet, get_config, set_config, get_logs, check_dependencies, download_dependency, extract_zip, start_engine, delete_cuda_files, select_directory, select_file, import_local_dependencies, export_config_file, import_config_file])
         .setup(move |app| {
             let config = load_config();
             let normalized = normalize_hotkey(&config.hotkey);
@@ -1228,8 +1354,8 @@ pub fn run() {
                 recorder: Mutex::new(AudioRecorder::new()),
                 is_recording: Mutex::new(false),
                 whisper_process: Mutex::new(None),
-                resource_dir,
-                app_data_dir,
+                resource_dir: resource_dir.clone(),
+                app_data_dir: app_data_dir.clone(),
                 app_handle,
                 tray_ready: tray_ready.clone(),
                 tray_recording,
@@ -1238,6 +1364,30 @@ pub fn run() {
             
             restart_whisper_server(&app_state);
             app.manage(app_state);
+
+            let _ = set_startup_enabled(config.start_at_login);
+
+            let base_dir = if !config.storage_path.is_empty() {
+                PathBuf::from(&config.storage_path)
+            } else {
+                app_data_dir.clone()
+            };
+
+            let appdata_exe = base_dir.join("bin").join("whisper-server.exe");
+            let appdata_model = base_dir.join("models").join("ggml-large-v3-q5_0.bin");
+            let resource_exe = resource_dir.join("bin").join("whisper-server.exe");
+
+            let appdata_engine_exists = appdata_exe.exists();
+            let engine_exists = appdata_engine_exists || resource_exe.exists();
+            let model_exists = appdata_model.exists();
+
+            let show_window = config.show_settings_on_startup || !engine_exists || !model_exists;
+            if show_window {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
 
             let parsed_shortcut = normalized.parse::<Shortcut>();
 
@@ -1252,11 +1402,8 @@ pub fn run() {
                 eprintln!("Could not parse shortcut: {}", normalized);
             }
 
-            // 1. Create tray menu items
-            let toggle_i = MenuItemBuilder::with_id("toggle", "Start / Stop Recording").build(app)?;
-            let settings_i = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
-            let quit_i = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&toggle_i, &settings_i, &quit_i]).build()?;
+            // 1. Create tray menu items dynamically using loaded language
+            let menu = build_tray_menu(app.handle(), &config.app_language)?;
 
             // 2. Build the tray icon
             let _tray = TrayIconBuilder::with_id("main_tray")

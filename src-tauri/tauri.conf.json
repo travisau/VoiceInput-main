@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "VoiceInput",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "identifier": "com.travis.voiceinput",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -16,7 +16,11 @@
         "label": "main",
         "title": "Voice Input Settings",
         "width": 520,
-        "height": 670,
+        "height": 850,
+        "minWidth": 520,
+        "maxWidth": 520,
+        "minHeight": 400,
+        "resizable": true,
         "visible": false
       }
     ],
@@ -27,7 +31,22 @@
   "bundle": {
     "active": true,
     "targets": ["msi"],
-    "resources": [],
+    "resources": [
+      "bin/whisper-server.exe",
+      "bin/whisper.dll",
+      "bin/ggml.dll",
+      "bin/ggml-base.dll",
+      "bin/ggml-cpu-alderlake.dll",
+      "bin/ggml-cpu-cannonlake.dll",
+      "bin/ggml-cpu-cascadelake.dll",
+      "bin/ggml-cpu-haswell.dll",
+      "bin/ggml-cpu-icelake.dll",
+      "bin/ggml-cpu-sandybridge.dll",
+      "bin/ggml-cpu-skylakex.dll",
+      "bin/ggml-cpu-sse42.dll",
+      "bin/ggml-cpu-x64.dll",
+      "bin/SDL2.dll"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

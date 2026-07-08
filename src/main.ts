@@ -18,12 +18,14 @@ interface Config {
   storage_path: string;
   custom_prompt: string;
   text_replacements: string;
+  show_settings_on_startup: boolean;
 }
 
 interface DependencyStatus {
   engine_exists: boolean;
   model_exists: boolean;
   appdata_dir: string;
+  appdata_engine_exists: boolean;
 }
 
 let currentConfig: Config | null = null;
@@ -45,6 +47,9 @@ const applyLearningBtn = document.getElementById("apply-learning-btn") as HTMLBu
 const learnBtn = document.getElementById("learn-btn") as HTMLButtonElement;
 const lastTranscriptionText = document.getElementById("last-transcription-text") as HTMLDivElement;
 const correctedTextInput = document.getElementById("corrected-text") as HTMLInputElement;
+const showSettingsOnStartupToggle = document.getElementById("show-settings-on-startup") as HTMLInputElement;
+const startAtLoginToggle = document.getElementById("start-at-login") as HTMLInputElement;
+const cpuThreadsSelect = document.getElementById("cpu-threads-select") as HTMLSelectElement;
 
 const setupStoragePathInput = document.getElementById("setup-storage-path") as HTMLInputElement;
 const setupBrowseStorageBtn = document.getElementById("setup-browse-storage-btn") as HTMLButtonElement;
@@ -62,8 +67,161 @@ const exportConfigBtn = document.getElementById("export-config-btn") as HTMLButt
 const importConfigBtn = document.getElementById("import-config-btn") as HTMLButtonElement;
 const setupEngineSelect = document.getElementById("setup-engine-select") as HTMLSelectElement;
 const reinstallWizardBtn = document.getElementById("reinstall-wizard-btn") as HTMLButtonElement;
+const setupCheckModelBtn = document.getElementById("setup-check-model-btn") as HTMLButtonElement;
+const setupCheckEngineBtn = document.getElementById("setup-check-engine-btn") as HTMLButtonElement;
+const setupRemoveCudaBtn = document.getElementById("setup-remove-cuda-btn") as HTMLButtonElement;
+const setupCloseBtn = document.getElementById("setup-close-btn") as HTMLButtonElement;
 
 let lastTransText = "";
+
+function showCustomAlert(message: string): Promise<void> {
+  return new Promise((resolve) => {
+    const modalOverlay = document.createElement("div");
+    modalOverlay.style.position = "fixed";
+    modalOverlay.style.top = "0";
+    modalOverlay.style.left = "0";
+    modalOverlay.style.width = "100%";
+    modalOverlay.style.height = "100%";
+    modalOverlay.style.background = "rgba(0, 0, 0, 0.6)";
+    modalOverlay.style.backdropFilter = "blur(15px)";
+    modalOverlay.style.display = "flex";
+    modalOverlay.style.justifyContent = "center";
+    modalOverlay.style.alignItems = "center";
+    modalOverlay.style.zIndex = "99999";
+    modalOverlay.style.animation = "fadeIn 0.2s ease";
+
+    const modalBox = document.createElement("div");
+    modalBox.style.width = "85%";
+    modalBox.style.maxWidth = "380px";
+    modalBox.style.background = "var(--panel-bg)";
+    modalBox.style.border = "1px solid var(--panel-border)";
+    modalBox.style.borderRadius = "16px";
+    modalBox.style.padding = "24px";
+    modalBox.style.boxShadow = "0 24px 40px rgba(0,0,0,0.5)";
+    modalBox.style.textAlign = "center";
+    modalBox.style.transform = "scale(0.9)";
+    modalBox.style.transition = "transform 0.2s ease";
+
+    const textEl = document.createElement("p");
+    textEl.style.fontSize = "14px";
+    textEl.style.color = "var(--text-primary)";
+    textEl.style.lineHeight = "1.6";
+    textEl.style.margin = "0 0 20px 0";
+    textEl.style.whiteSpace = "pre-wrap";
+    textEl.textContent = message;
+
+    const okBtn = document.createElement("button");
+    okBtn.className = "primary-btn";
+    okBtn.style.width = "100%";
+    okBtn.style.padding = "10px 0";
+    okBtn.style.fontSize = "14px";
+    okBtn.style.cursor = "pointer";
+    okBtn.textContent = currentConfig?.app_language === "zh" ? "確定" : "OK";
+
+    modalBox.appendChild(textEl);
+    modalBox.appendChild(okBtn);
+    modalOverlay.appendChild(modalBox);
+    document.body.appendChild(modalOverlay);
+
+    setTimeout(() => {
+      modalBox.style.transform = "scale(1)";
+    }, 10);
+
+    const closeHandler = () => {
+      modalBox.style.transform = "scale(0.9)";
+      modalOverlay.style.opacity = "0";
+      setTimeout(() => {
+        document.body.removeChild(modalOverlay);
+        resolve();
+      }, 200);
+    };
+
+    okBtn.addEventListener("click", closeHandler);
+  });
+}
+
+function showCustomConfirm(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const modalOverlay = document.createElement("div");
+    modalOverlay.style.position = "fixed";
+    modalOverlay.style.top = "0";
+    modalOverlay.style.left = "0";
+    modalOverlay.style.width = "100%";
+    modalOverlay.style.height = "100%";
+    modalOverlay.style.background = "rgba(0, 0, 0, 0.6)";
+    modalOverlay.style.backdropFilter = "blur(15px)";
+    modalOverlay.style.display = "flex";
+    modalOverlay.style.justifyContent = "center";
+    modalOverlay.style.alignItems = "center";
+    modalOverlay.style.zIndex = "99999";
+    modalOverlay.style.animation = "fadeIn 0.2s ease";
+
+    const modalBox = document.createElement("div");
+    modalBox.style.width = "85%";
+    modalBox.style.maxWidth = "380px";
+    modalBox.style.background = "var(--panel-bg)";
+    modalBox.style.border = "1px solid var(--panel-border)";
+    modalBox.style.borderRadius = "16px";
+    modalBox.style.padding = "24px";
+    modalBox.style.boxShadow = "0 24px 40px rgba(0,0,0,0.5)";
+    modalBox.style.textAlign = "center";
+    modalBox.style.transform = "scale(0.9)";
+    modalBox.style.transition = "transform 0.2s ease";
+
+    const textEl = document.createElement("p");
+    textEl.style.fontSize = "14px";
+    textEl.style.color = "var(--text-primary)";
+    textEl.style.lineHeight = "1.6";
+    textEl.style.margin = "0 0 20px 0";
+    textEl.style.whiteSpace = "pre-wrap";
+    textEl.textContent = message;
+
+    const btnGroup = document.createElement("div");
+    btnGroup.style.display = "flex";
+    btnGroup.style.gap = "12px";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "secondary-btn";
+    cancelBtn.style.flex = "1";
+    cancelBtn.style.padding = "10px 0";
+    cancelBtn.style.fontSize = "14px";
+    cancelBtn.style.margin = "0";
+    cancelBtn.style.cursor = "pointer";
+    cancelBtn.textContent = currentConfig?.app_language === "zh" ? "取消" : "Cancel";
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "primary-btn";
+    confirmBtn.style.flex = "1";
+    confirmBtn.style.padding = "10px 0";
+    confirmBtn.style.fontSize = "14px";
+    confirmBtn.style.margin = "0";
+    confirmBtn.style.cursor = "pointer";
+    confirmBtn.textContent = currentConfig?.app_language === "zh" ? "確定" : "OK";
+
+    btnGroup.appendChild(cancelBtn);
+    btnGroup.appendChild(confirmBtn);
+    modalBox.appendChild(textEl);
+    modalBox.appendChild(btnGroup);
+    modalOverlay.appendChild(modalBox);
+    document.body.appendChild(modalOverlay);
+
+    setTimeout(() => {
+      modalBox.style.transform = "scale(1)";
+    }, 10);
+
+    const closeHandler = (result: boolean) => {
+      modalBox.style.transform = "scale(0.9)";
+      modalOverlay.style.opacity = "0";
+      setTimeout(() => {
+        document.body.removeChild(modalOverlay);
+        resolve(result);
+      }, 200);
+    };
+
+    cancelBtn.addEventListener("click", () => closeHandler(false));
+    confirmBtn.addEventListener("click", () => closeHandler(true));
+  });
+}
 
 const translations: Record<string, Record<string, string>> = {
   zh: {
@@ -82,7 +240,7 @@ const translations: Record<string, Record<string, string>> = {
     "title-engine": "🧠 AI 引擎設定",
     "lbl-cantonese-title": "粵語模式 (廣東話)",
     "lbl-cantonese-desc": "保留廣東話口語化詞彙（如「佢、哋、咗」）",
-    "lbl-device-select": "運算裝置 (Device)",
+    "lbl-device-select": "運算裝置",
     "opt-device-cpu": "CPU (高相容性，支援所有電腦)",
     "opt-device-cuda": "NVIDIA GPU (需 CUDA 支援，速度最快)",
     "lbl-model-select": "AI 語音模型",
@@ -117,18 +275,18 @@ const translations: Record<string, Record<string, string>> = {
     "status-processing": "處理中...",
     "status-transcribing": "正在轉寫...",
     "title-learning": "📝 字詞學習與自動修正",
-    "lbl-setup-storage": "安裝與儲存資料夾 (Storage Path)",
+    "lbl-setup-storage": "安裝與儲存資料夾",
     "btn-setup-tab-download": "🚀 網絡一鍵下載 (推薦)",
     "btn-setup-tab-import": "📂 本地檔案匯入 (離線)",
-    "lbl-import-engine": "語音引擎壓縮包 (whisper-server-cpu.zip)",
+    "lbl-import-engine": "語音引擎壓縮包 (whisper-server-cuda.zip)",
     "lbl-import-model": "語音模型檔 (ggml-large-v3-q5_0.bin)",
     "btn-install-import": "開始匯入並安裝",
-    "lbl-setup-engine-select": "AI 運算引擎版本 (Engine Edition)",
+    "lbl-setup-engine-select": "AI 運算引擎版本",
     "opt-setup-cpu": "CPU 版本 (相容性最高，檔案僅 4.4MB)",
     "opt-setup-cuda": "NVIDIA GPU CUDA 版本 (速度極快，需 NVIDIA 顯卡)",
-    "lbl-custom-prompt": "常用詞彙學習庫 (Custom Vocabulary)",
+    "lbl-custom-prompt": "常用詞彙學習庫",
     "lbl-custom-prompt-desc": "讓 AI 學習新詞彙，在此輸入你經常使用的專有名詞、姓名、產品名等（用逗號隔開）",
-    "lbl-text-replacements": "字詞自動修正對照表 (Text Corrections)",
+    "lbl-text-replacements": "字詞自動修正對照表",
     "lbl-text-replacements-desc": "自動將聽錯的字替換成正確的字（每行一條規則，格式如：舊字 -> 新字，例如：崔斯 -> Travis）",
     "tab-learning": "📝 字詞學習",
     "title-correct-last": "✏️ 修正上一句辨識內容",
@@ -141,9 +299,28 @@ const translations: Record<string, Record<string, string>> = {
     "credits-text-learning": "設計者：Travis Au | 電郵：contact@travis-studio.com",
     "title-backup": "💾 資料備份與移轉",
     "lbl-backup-desc": "您可以匯出所有的系統設定、啟動快速鍵、以及自定義學習詞彙與修正對照表。在新電腦上匯入即可無縫接軌！",
-    "btn-export": "匯出資料 / Export Data",
-    "btn-import": "匯入資料 / Import Data",
-    "btn-reinstall": "⚙️ 啟動安裝與設定精靈"
+    "btn-export": "匯出資料",
+    "btn-import": "匯入資料",
+    "no-transcription-yet": "(尚未有已轉寫的句子)",
+    "btn-reinstall": "⚙️ 啟動安裝與設定精靈",
+    "btn-check": "檢測本機",
+    "btn-manage": "🔍 檢視與編輯",
+    "modal-replacements-title": "字詞自動修正管理",
+    "modal-replacements-desc": "檢視、搜尋與編輯您的自動修正對照表規則。",
+    "placeholder-search-replacements": "搜尋規則...",
+    "placeholder-wrong": "聽錯的字",
+    "placeholder-correct": "修正後",
+    "btn-add": "新增",
+    "btn-bulk-edit": "切換至文字編輯",
+    "btn-list-view": "切換至列表檢視",
+    "count-rules": "共 {count} 條規則",
+    "btn-save-replacements": "套用變更",
+    "lbl-show-settings-title": "開啟程式時自動顯示主視窗",
+    "lbl-start-at-login-title": "開機時自動啟動",
+    "lbl-cpu-threads": "CPU 運算執行緒數",
+    "opt-threads-auto": "自動 (預設 4 執行緒)",
+    "btn-remove-cuda": "移除",
+    "btn-edit": "編輯"
   },
   en: {
     "tab-settings": "⚙️ Settings",
@@ -199,7 +376,7 @@ const translations: Record<string, Record<string, string>> = {
     "lbl-setup-storage": "Storage Folder Path",
     "btn-setup-tab-download": "🚀 Online Download (Recommended)",
     "btn-setup-tab-import": "📂 Local File Import (Offline)",
-    "lbl-import-engine": "Voice Engine Archive (whisper-server-cpu.zip)",
+    "lbl-import-engine": "Voice Engine Archive (whisper-server-cuda.zip)",
     "lbl-import-model": "Voice Model File (ggml-large-v3-q5_0.bin)",
     "btn-install-import": "Import & Install",
     "lbl-setup-engine-select": "AI Engine Edition",
@@ -222,7 +399,26 @@ const translations: Record<string, Record<string, string>> = {
     "lbl-backup-desc": "Export all system configurations, hotkeys, custom vocabulary prompts, and text replacement rules to migrate them to a new computer, or import them back.",
     "btn-export": "Export Data",
     "btn-import": "Import Data",
-    "btn-reinstall": "⚙️ Launch Setup Wizard"
+    "no-transcription-yet": "(No sentences transcribed yet)",
+    "btn-reinstall": "⚙️ Launch Setup Wizard",
+    "btn-check": "Check Local",
+    "btn-manage": "🔍 Manage",
+    "modal-replacements-title": "Text Corrections Manager",
+    "modal-replacements-desc": "View, search, and edit your text replacement rules.",
+    "placeholder-search-replacements": "Search rules...",
+    "placeholder-wrong": "Wrong word",
+    "placeholder-correct": "Correction",
+    "btn-add": "Add",
+    "btn-bulk-edit": "Switch to Bulk Edit",
+    "btn-list-view": "Switch to List View",
+    "count-rules": "{count} rules in total",
+    "btn-save-replacements": "Apply Changes",
+    "lbl-show-settings-title": "Show Settings on Startup",
+    "lbl-start-at-login-title": "Start at Windows Login",
+    "lbl-cpu-threads": "CPU Threads",
+    "opt-threads-auto": "Auto (4 Threads)",
+    "btn-remove-cuda": "Remove CUDA",
+    "btn-edit": "Edit"
   }
 };
 
@@ -239,12 +435,7 @@ function updateUILanguage(lang: string) {
     logsTabBtn.innerHTML = `<span>🖥️</span> ${dict["tab-logs"].substring(2)}`;
   }
 
-  // Set group titles
-  const hotkeyH2 = document.querySelector('.settings-grid .setting-group:nth-of-type(1) h2') as HTMLHeadingElement;
-  if (hotkeyH2) {
-    hotkeyH2.innerHTML = `<span class="icon">⌨️</span> ${dict["title-hotkey"].substring(2)}`;
-  }
-  const engineH2 = document.querySelector('.settings-grid .setting-group:nth-of-type(2) h2') as HTMLHeadingElement;
+  const engineH2 = document.getElementById("title-engine");
   if (engineH2) {
     engineH2.innerHTML = `<span class="icon">🧠</span> ${dict["title-engine"].substring(2)}`;
   }
@@ -258,6 +449,15 @@ function updateUILanguage(lang: string) {
   if (lblSoundMode) lblSoundMode.textContent = dict["lbl-sound-mode"];
   const lblAppLanguage = document.getElementById("lbl-app-language");
   if (lblAppLanguage) lblAppLanguage.textContent = dict["lbl-app-language"];
+
+  const lblShowSettings = document.getElementById("lbl-show-settings-title");
+  if (lblShowSettings) lblShowSettings.textContent = dict["lbl-show-settings-title"];
+  const lblStartAtLogin = document.getElementById("lbl-start-at-login-title");
+  if (lblStartAtLogin) lblStartAtLogin.textContent = dict["lbl-start-at-login-title"];
+  const lblCpuThreads = document.getElementById("lbl-cpu-threads");
+  if (lblCpuThreads) lblCpuThreads.textContent = dict["lbl-cpu-threads"];
+  const optThreadsAuto = document.getElementById("opt-threads-auto");
+  if (optThreadsAuto) optThreadsAuto.textContent = dict["opt-threads-auto"];
   
   const lblCantoneseTitle = document.getElementById("lbl-cantonese-title");
   if (lblCantoneseTitle) lblCantoneseTitle.textContent = dict["lbl-cantonese-title"];
@@ -279,9 +479,16 @@ function updateUILanguage(lang: string) {
     learningTabBtn.innerHTML = `<span>📝</span> ${dict["tab-learning"].substring(2)}`;
   }
 
-  const learningH2 = document.querySelector('#learning-tab .setting-group:nth-of-type(2) h2') as HTMLHeadingElement;
-  if (learningH2) {
-    learningH2.innerHTML = `<span class="icon">📝</span> ${dict["title-learning"].substring(2)}`;
+  const titleLearning = document.getElementById("title-learning");
+  if (titleLearning) {
+    titleLearning.innerHTML = `<span class="icon">📝</span> ${dict["title-learning"].substring(2)}`;
+  }
+
+  const lastTransTextEl = document.getElementById("last-transcription-text");
+  if (lastTransTextEl) {
+    if (!lastTransText) {
+      lastTransTextEl.textContent = dict["no-transcription-yet"];
+    }
   }
   
   const lblCustomPrompt = document.getElementById("lbl-custom-prompt");
@@ -366,6 +573,7 @@ function updateUILanguage(lang: string) {
   const lblSetupStorage = document.getElementById("lbl-setup-storage");
   if (lblSetupStorage) lblSetupStorage.textContent = dict["lbl-setup-storage"];
   if (setupBrowseStorageBtn) setupBrowseStorageBtn.textContent = dict["btn-browse"];
+  if (setupCheckModelBtn) setupCheckModelBtn.textContent = dict["btn-check"];
   
   if (setupTabDownload) setupTabDownload.textContent = dict["btn-setup-tab-download"];
   if (setupTabImport) setupTabImport.textContent = dict["btn-setup-tab-import"];
@@ -407,6 +615,57 @@ function updateUILanguage(lang: string) {
   if (startBtn && !startBtn.disabled) {
     startBtn.textContent = dict["btn-download"];
   }
+  if (setupRemoveCudaBtn) {
+    setupRemoveCudaBtn.textContent = dict["btn-remove-cuda"] || "Remove CUDA";
+  }
+
+  // Replacements & Vocabulary Modal translations
+  const btnManageReplacements = document.getElementById("btn-manage-replacements");
+  if (btnManageReplacements) btnManageReplacements.textContent = dict["btn-manage"] || "🔍 Manage";
+  
+  const btnManageVocabulary = document.getElementById("btn-manage-vocabulary");
+  if (btnManageVocabulary) btnManageVocabulary.textContent = dict["btn-manage"] || "🔍 Manage";
+  
+  const modalReplacementsTitle = document.getElementById("modal-replacements-title");
+  if (modalReplacementsTitle) modalReplacementsTitle.textContent = dict["modal-replacements-title"] || "";
+  
+  const modalReplacementsDesc = document.getElementById("modal-replacements-desc");
+  if (modalReplacementsDesc) modalReplacementsDesc.textContent = dict["modal-replacements-desc"] || "";
+  
+  const replacementSearch = document.getElementById("replacement-search") as HTMLInputElement;
+  if (replacementSearch) replacementSearch.placeholder = dict["placeholder-search-replacements"] || "";
+  
+  const newReplacementWrong = document.getElementById("new-replacement-wrong") as HTMLInputElement;
+  if (newReplacementWrong) newReplacementWrong.placeholder = dict["placeholder-wrong"] || "";
+  
+  const newReplacementCorrect = document.getElementById("new-replacement-correct") as HTMLInputElement;
+  if (newReplacementCorrect) newReplacementCorrect.placeholder = dict["placeholder-correct"] || "";
+  
+  const btnAddReplacement = document.getElementById("btn-add-replacement");
+  if (btnAddReplacement) btnAddReplacement.textContent = dict["btn-add"] || "";
+  
+  const btnToggleBulkEdit = document.getElementById("btn-toggle-bulk-edit");
+  if (btnToggleBulkEdit) {
+    const isBulk = !document.getElementById("bulk-edit-container")?.classList.contains("hidden");
+    btnToggleBulkEdit.textContent = isBulk ? (dict["btn-list-view"] || "") : (dict["btn-bulk-edit"] || "");
+  }
+  
+  const replacementsSaveBtn = document.getElementById("replacements-save-btn");
+  if (replacementsSaveBtn) replacementsSaveBtn.textContent = dict["btn-save-replacements"] || "";
+}
+
+function updateCpuThreadsVisibility() {
+  if (deviceSelect) {
+    const isCuda = deviceSelect.value === "cuda";
+    const cpuThreadsRow = document.getElementById("cpu-threads-row");
+    if (cpuThreadsRow) {
+      if (isCuda) {
+        cpuThreadsRow.classList.add("hidden");
+      } else {
+        cpuThreadsRow.classList.remove("hidden");
+      }
+    }
+  }
 }
 
 async function loadConfig() {
@@ -426,8 +685,12 @@ async function loadConfig() {
       storagePathInput.value = currentConfig.storage_path || "";
       customPromptInput.value = currentConfig.custom_prompt || "";
       textReplacementsInput.value = currentConfig.text_replacements || "";
+      showSettingsOnStartupToggle.checked = currentConfig.show_settings_on_startup !== false; // default true
+      startAtLoginToggle.checked = !!currentConfig.start_at_login; // default false
+      cpuThreadsSelect.value = String(currentConfig.cpu_threads || 0); // default 0 (auto)
       
       updateUILanguage(currentConfig.app_language);
+      updateCpuThreadsVisibility();
     }
   } catch (error) {
     console.error("Failed to load config", error);
@@ -450,6 +713,9 @@ async function saveConfig() {
     storage_path: storagePathInput.value,
     custom_prompt: customPromptInput.value,
     text_replacements: textReplacementsInput.value,
+    show_settings_on_startup: showSettingsOnStartupToggle.checked,
+    start_at_login: startAtLoginToggle.checked,
+    cpu_threads: Number(cpuThreadsSelect.value),
   };
 
   const dict = translations[newConfig.app_language] || translations["zh"];
@@ -461,10 +727,7 @@ async function saveConfig() {
     await invoke("set_config", { newConfig });
     
     applyBtn.textContent = dict["btn-apply-success"];
-    setTimeout(() => {
-      applyBtn.textContent = dict["btn-apply"];
-      applyBtn.disabled = false;
-    }, 2000);
+    applyBtn.disabled = true;
     
     currentConfig = newConfig;
     updateUILanguage(newConfig.app_language);
@@ -491,141 +754,192 @@ async function runDependencyChecks(forceShow = false) {
   const currentLang = appLanguageSelect.value || "zh";
   const dict = translations[currentLang] || translations["zh"];
 
-  if (status.engine_exists && status.model_exists && !forceShow) {
+  if (setupStoragePathInput && !setupStoragePathInput.value) {
+    setupStoragePathInput.value = currentConfig?.storage_path || "";
+  }
+
+  updateUILanguage(currentLang);
+
+  // CPU is always pre-bundled (so CPU engine_exists is true by default). 
+  // For CUDA, we check if the CUDA engine is installed in custom storage folder.
+  const isCudaMode = setupEngineSelect.value === "cuda";
+  const isEngineInstalled = isCudaMode ? status.appdata_engine_exists : status.engine_exists;
+
+  // Show or hide "Remove CUDA / 移除" button
+  if (setupRemoveCudaBtn) {
+    if (status.appdata_engine_exists && isCudaMode) {
+      setupRemoveCudaBtn.classList.remove("hidden");
+    } else {
+      setupRemoveCudaBtn.classList.add("hidden");
+    }
+  }
+
+  if (isEngineInstalled && status.model_exists && !forceShow) {
     overlay.classList.add("hidden");
     return;
   }
 
-  updateUILanguage(currentLang);
   overlay.classList.remove("hidden");
   
-  engineStatus.textContent = status.engine_exists ? dict["status-installed"] : dict["status-missing"];
-  engineStatus.style.color = status.engine_exists ? "var(--accent-green)" : "#ff3c3c";
-  if (status.engine_exists) {
-    document.getElementById("dep-engine-bar")!.style.width = "100%";
-  } else {
-    document.getElementById("dep-engine-bar")!.style.width = "0%";
-    document.getElementById("dep-engine-text")!.textContent = "";
-  }
-  
+  // Render Engine Status
+  engineStatus.textContent = isEngineInstalled ? dict["status-installed"] : dict["status-missing"];
+  engineStatus.style.color = isEngineInstalled ? "var(--accent-green)" : "#ff3c3c";
+  document.getElementById("dep-engine-bar")!.style.width = isEngineInstalled ? "100%" : "0%";
+  document.getElementById("dep-engine-text")!.textContent = "";
+
+  // Render Model Status
   modelStatus.textContent = status.model_exists ? dict["status-installed"] : dict["status-missing"];
   modelStatus.style.color = status.model_exists ? "var(--accent-green)" : "#ff3c3c";
   if (status.model_exists) {
     document.getElementById("dep-model-bar")!.style.width = "100%";
+    document.getElementById("dep-model-text")!.textContent = "";
   } else {
     document.getElementById("dep-model-bar")!.style.width = "0%";
     document.getElementById("dep-model-text")!.textContent = "";
   }
 
-  startBtn.onclick = async () => {
-    const freshLang = appLanguageSelect.value || "zh";
-    const freshDict = translations[freshLang] || translations["zh"];
-    
-    startBtn.disabled = true;
-    startBtn.textContent = freshDict["btn-download-setting-up"];
-
-    // Read dynamic storage path chosen during setup
-    const baseDir = setupStoragePathInput.value.trim() || status.appdata_dir;
-    const selectedEngine = setupEngineSelect.value;
-    
-    // Update config on disk immediately with the selected path & device mode
-    if (currentConfig) {
-      currentConfig.storage_path = setupStoragePathInput.value.trim();
-      currentConfig.device = selectedEngine;
-      await invoke("set_config", { newConfig: currentConfig });
-    }
-
-    const appDataBin = `${baseDir}\\bin`;
-    const appDataModels = `${baseDir}\\models`;
-    const tempZip = `${baseDir}\\temp_engine.zip`;
-    const modelDest = `${appDataModels}\\ggml-large-v3-q5_0.bin`;
-
-    const download = (url: string, dest: string, eventName: string, barId: string, textId: string) => {
-      return new Promise<void>(async (resolve, reject) => {
-        const unlisten = await listen<{ downloaded: number; total: number; percentage: number; error?: string; done?: boolean }>(
-          eventName,
-          (event) => {
-            const data = event.payload;
-            if (data.error) {
-              unlisten();
-              reject(data.error);
-              return;
-            }
-            const percentageStr = `${Math.floor(data.percentage)}%`;
-            document.getElementById(barId)!.style.width = percentageStr;
-            document.getElementById(textId)!.textContent = `${(data.downloaded / 1024 / 1024).toFixed(1)}MB / ${(data.total / 1024 / 1024).toFixed(1)}MB (${percentageStr})`;
-            
-            if (data.done) {
-              unlisten();
-              resolve();
-            }
-          }
-        );
-
-        try {
-          await invoke("download_dependency", { url, destPath: dest, eventName });
-        } catch (err) {
-          unlisten();
-          reject(err);
-        }
-      });
-    };
-
-    try {
-      if (!status.engine_exists) {
-        engineStatus.textContent = freshDict["status-downloading"];
-        engineStatus.style.color = "var(--accent-blue)";
-        
-        const engineUrl = selectedEngine === "cuda" 
-          ? "https://github.com/travisau/VoiceInput-main/releases/download/v0.1.0/whisper-server-cuda.zip"
-          : "https://github.com/travisau/VoiceInput-main/releases/download/v0.1.0/whisper-server-cpu.zip";
-        
-        await download(
-          engineUrl,
-          tempZip,
-          "engine-download-progress",
-          "dep-engine-bar",
-          "dep-engine-text"
-        );
-
-        engineStatus.textContent = freshDict["status-extracting"];
-        await invoke("extract_zip", { zipPath: tempZip, destDir: appDataBin });
-        engineStatus.textContent = freshDict["status-installed"];
-        engineStatus.style.color = "var(--accent-green)";
-        document.getElementById("dep-engine-bar")!.style.width = "100%";
+  // Update Start Button
+  if (isEngineInstalled && status.model_exists) {
+    startBtn.textContent = currentLang === "zh" ? "檢測成功！點此開啟主介面" : "Found! Enter App";
+    startBtn.disabled = false;
+    startBtn.onclick = async () => {
+      // Update config on disk with selected engine and storage path
+      if (currentConfig) {
+        currentConfig.storage_path = setupStoragePathInput.value.trim();
+        currentConfig.device = setupEngineSelect.value;
+        await invoke("set_config", { newConfig: currentConfig });
       }
-
-      if (!status.model_exists) {
-        modelStatus.textContent = freshDict["status-downloading"];
-        modelStatus.style.color = "var(--accent-blue)";
-
-        await download(
-          "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
-          modelDest,
-          "model-download-progress",
-          "dep-model-bar",
-          "dep-model-text"
-        );
-
-        modelStatus.textContent = freshDict["status-installed"];
-        modelStatus.style.color = "var(--accent-green)";
-        document.getElementById("dep-model-bar")!.style.width = "100%";
-      }
-
-      startBtn.textContent = freshDict["btn-download-all-set"];
       await invoke("start_engine");
+      overlay.classList.add("hidden");
       
-      setTimeout(() => {
-        overlay.classList.add("hidden");
-      }, 1500);
+      // Auto open settings tab after wizard closes
+      const settingsTabBtn = document.querySelector('.tab-btn[data-tab="settings-tab"]') as HTMLButtonElement;
+      if (settingsTabBtn) {
+        settingsTabBtn.click();
+      }
+    };
+  } else {
+    startBtn.textContent = dict["btn-download"];
+    startBtn.disabled = false;
+    
+    // Wire the download flow
+    startBtn.onclick = async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = dict["btn-download-setting-up"];
 
-    } catch (error) {
-      console.error("Setup failed:", error);
-      alert(`Setup Failed: ${error}`);
-      startBtn.disabled = false;
-      startBtn.textContent = freshDict["btn-download-retry"];
-    }
-  };
+      const baseDir = setupStoragePathInput.value.trim() || status.appdata_dir;
+      const selectedEngine = setupEngineSelect.value;
+      
+      if (currentConfig) {
+        currentConfig.storage_path = setupStoragePathInput.value.trim();
+        currentConfig.device = selectedEngine;
+        await invoke("set_config", { newConfig: currentConfig });
+      }
+
+      const appDataBin = `${baseDir}\\bin`;
+      const appDataModels = `${baseDir}\\models`;
+      const tempZip = `${baseDir}\\temp_engine.zip`;
+      const modelDest = `${appDataModels}\\ggml-large-v3-q5_0.bin`;
+
+      const download = (url: string, dest: string, eventName: string, barId: string, textId: string) => {
+        return new Promise<void>(async (resolve, reject) => {
+          const unlisten = await listen<{ downloaded: number; total: number; percentage: number; error?: string; done?: boolean }>(
+            eventName,
+            (event) => {
+              const data = event.payload;
+              if (data.error) {
+                unlisten();
+                reject(data.error);
+                return;
+              }
+              const percentageStr = `${Math.floor(data.percentage)}%`;
+              document.getElementById(barId)!.style.width = percentageStr;
+              document.getElementById(textId)!.textContent = `${(data.downloaded / 1024 / 1024).toFixed(1)}MB / ${(data.total / 1024 / 1024).toFixed(1)}MB (${percentageStr})`;
+              
+              if (data.done) {
+                unlisten();
+                resolve();
+              }
+            }
+          );
+
+          try {
+            await invoke("download_dependency", { url, destPath: dest, eventName });
+          } catch (err) {
+            unlisten();
+            reject(err);
+          }
+        });
+      };
+
+      try {
+        // Re-fetch live status just before starting
+        const liveStatus = await invoke<DependencyStatus>("check_dependencies");
+        const liveIsEngineInstalled = selectedEngine === "cuda" ? liveStatus.appdata_engine_exists : liveStatus.engine_exists;
+
+        if (!liveIsEngineInstalled) {
+          engineStatus.textContent = dict["status-downloading"];
+          engineStatus.style.color = "var(--accent-blue)";
+          
+          const engineUrl = selectedEngine === "cuda" 
+            ? "https://github.com/travisau/VoiceInput-main/releases/download/v0.1.0/whisper-server-cuda.zip"
+            : "https://github.com/travisau/VoiceInput-main/releases/download/v0.1.0/whisper-server-cpu.zip";
+          
+          await download(
+            engineUrl,
+            tempZip,
+            "engine-download-progress",
+            "dep-engine-bar",
+            "dep-engine-text"
+          );
+
+          engineStatus.textContent = dict["status-extracting"];
+          await invoke("extract_zip", { zipPath: tempZip, destDir: appDataBin });
+          engineStatus.textContent = dict["status-installed"];
+          engineStatus.style.color = "var(--accent-green)";
+          document.getElementById("dep-engine-bar")!.style.width = "100%";
+          document.getElementById("dep-engine-text")!.textContent = "";
+        }
+
+        if (!liveStatus.model_exists) {
+          modelStatus.textContent = dict["status-downloading"];
+          modelStatus.style.color = "var(--accent-blue)";
+
+          await download(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
+            modelDest,
+            "model-download-progress",
+            "dep-model-bar",
+            "dep-model-text"
+          );
+
+          modelStatus.textContent = dict["status-installed"];
+          modelStatus.style.color = "var(--accent-green)";
+          document.getElementById("dep-model-bar")!.style.width = "100%";
+          document.getElementById("dep-model-text")!.textContent = "";
+        }
+
+        startBtn.textContent = dict["btn-download-all-set"];
+        await invoke("start_engine");
+        
+        setTimeout(() => {
+          overlay.classList.add("hidden");
+          
+          // Auto open settings tab after wizard closes
+          const settingsTabBtn = document.querySelector('.tab-btn[data-tab="settings-tab"]') as HTMLButtonElement;
+          if (settingsTabBtn) {
+            settingsTabBtn.click();
+          }
+        }, 1500);
+
+      } catch (error) {
+        console.error("Setup failed:", error);
+        await showCustomAlert(`Setup Failed: ${error}`);
+        startBtn.disabled = false;
+        startBtn.textContent = dict["btn-download-retry"];
+      }
+    };
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -636,6 +950,82 @@ window.addEventListener("DOMContentLoaded", () => {
   
   applyBtn.addEventListener("click", saveConfig);
   applyLearningBtn.addEventListener("click", saveConfig);
+
+  function onSettingChanged() {
+    const currentLang = appLanguageSelect.value || "zh";
+    const dict = translations[currentLang] || translations["zh"];
+    if (applyBtn) {
+      applyBtn.textContent = dict["btn-apply"] || "儲存設定";
+      applyBtn.disabled = false;
+    }
+  }
+
+  // Bind change/input events to detect unsaved settings changes
+  if (hotkeyModeSelect) hotkeyModeSelect.addEventListener("change", onSettingChanged);
+  if (soundModeSelect) soundModeSelect.addEventListener("change", onSettingChanged);
+  if (appLanguageSelect) appLanguageSelect.addEventListener("change", onSettingChanged);
+  if (cantoneseModeToggle) cantoneseModeToggle.addEventListener("change", onSettingChanged);
+  if (showSettingsOnStartupToggle) showSettingsOnStartupToggle.addEventListener("change", onSettingChanged);
+  if (startAtLoginToggle) startAtLoginToggle.addEventListener("change", onSettingChanged);
+  if (deviceSelect) {
+    deviceSelect.addEventListener("change", () => {
+      onSettingChanged();
+      updateCpuThreadsVisibility();
+    });
+  }
+  if (cpuThreadsSelect) cpuThreadsSelect.addEventListener("change", onSettingChanged);
+  if (modelSelect) modelSelect.addEventListener("change", onSettingChanged);
+  if (chineseOutputSelect) chineseOutputSelect.addEventListener("change", onSettingChanged);
+  if (storagePathInput) storagePathInput.addEventListener("input", onSettingChanged);
+
+  // Implement hotkey recording
+  if (hotkeyInput) {
+    hotkeyInput.addEventListener("focus", () => {
+      hotkeyInput.value = "";
+      hotkeyInput.placeholder = appLanguageSelect.value === "zh" ? "請按下快捷鍵組合..." : "Press hotkey combination...";
+    });
+
+    hotkeyInput.addEventListener("blur", () => {
+      if (!hotkeyInput.value) {
+        hotkeyInput.value = currentConfig?.hotkey || "ctrl+f9";
+      }
+      hotkeyInput.placeholder = "";
+    });
+
+    hotkeyInput.addEventListener("keydown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const parts: string[] = [];
+      if (e.ctrlKey) parts.push("ctrl");
+      if (e.shiftKey) parts.push("shift");
+      if (e.altKey) parts.push("alt");
+      if (e.metaKey) parts.push("command");
+
+      const key = e.key;
+      const isModifier = ["Control", "Shift", "Alt", "Meta"].includes(key);
+
+      if (!isModifier) {
+        let keyName = key.toLowerCase();
+        if (keyName === " ") keyName = "space";
+        else if (keyName === "arrowup") keyName = "up";
+        else if (keyName === "arrowdown") keyName = "down";
+        else if (keyName === "arrowleft") keyName = "left";
+        else if (keyName === "arrowright") keyName = "right";
+        
+        parts.push(keyName);
+        hotkeyInput.value = parts.join("+");
+        onSettingChanged();
+        hotkeyInput.blur(); // auto-finish recording when main key is pressed
+      } else {
+        if (parts.length > 0) {
+          hotkeyInput.value = parts.join("+") + "+";
+        } else {
+          hotkeyInput.value = "";
+        }
+      }
+    });
+  }
 
   // Setup tab toggling
   if (setupTabDownload && setupTabImport) {
@@ -743,7 +1133,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }, 1500);
       } catch (err) {
         console.error("Local import failed:", err);
-        alert(`Import Failed: ${err}`);
+        await showCustomAlert(`Import Failed: ${err}`);
         startImportBtn.disabled = false;
         startImportBtn.textContent = currentLang === "zh" ? "重試匯入" : "Retry Import";
       }
@@ -776,13 +1166,88 @@ window.addEventListener("DOMContentLoaded", () => {
     return null;
   }
 
+  function getDiffPairs(original: string, corrected: string): Array<{ wrong: string; correct: string }> {
+    const n = original.length;
+    const m = corrected.length;
+    
+    // DP table for LCS
+    const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        if (original[i - 1] === corrected[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+    
+    // Backtrack to find diff blocks
+    let i = n, j = m;
+    const ops: Array<{ type: 'keep' | 'delete' | 'insert'; char: string }> = [];
+    
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && original[i - 1] === corrected[j - 1]) {
+        ops.push({ type: 'keep', char: original[i - 1] });
+        i--;
+        j--;
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        ops.push({ type: 'insert', char: corrected[j - 1] });
+        j--;
+      } else {
+        ops.push({ type: 'delete', char: original[i - 1] });
+        i--;
+      }
+    }
+    ops.reverse();
+    
+    // Group consecutive deletes and inserts
+    const pairs: Array<{ wrong: string; correct: string }> = [];
+    let currentDelete = "";
+    let currentInsert = "";
+    
+    for (const op of ops) {
+      if (op.type === 'delete') {
+        currentDelete += op.char;
+      } else if (op.type === 'insert') {
+        currentInsert += op.char;
+      } else {
+        if (currentDelete || currentInsert) {
+          pairs.push({
+            wrong: currentDelete.trim(),
+            correct: currentInsert.trim()
+          });
+          currentDelete = "";
+          currentInsert = "";
+        }
+      }
+    }
+    
+    if (currentDelete || currentInsert) {
+      pairs.push({
+        wrong: currentDelete.trim(),
+        correct: currentInsert.trim()
+      });
+    }
+    
+    const isPunctuation = (str: string) => /^[，。、？！,.?!:：;；"'\s]+$/.test(str);
+    
+    return pairs
+      .map(p => {
+        let w = p.wrong.replace(/^[，。、？！,.?!:：;；"'\s]+|[，。、？！,.?!:：;；"'\s]+$/g, "");
+        let c = p.correct.replace(/^[，。、？！,.?!:：;；"'\s]+|[，。、？！,.?!:：;；"'\s]+$/g, "");
+        return { wrong: w, correct: c };
+      })
+      .filter(p => p.wrong && p.correct && p.wrong !== p.correct && !isPunctuation(p.wrong) && !isPunctuation(p.correct));
+  }
+
   learnBtn.addEventListener("click", async () => {
     const correctedVal = correctedTextInput.value.trim();
     const currentLang = currentConfig?.app_language || "zh";
     const dict = translations[currentLang] || translations["zh"];
 
     if (!lastTransText) {
-      alert(currentLang === "zh" ? "尚未輸入任何句子！" : "No sentence transcribed yet!");
+      await showCustomAlert(currentLang === "zh" ? "尚未輸入任何句子！" : "No sentence transcribed yet!");
       return;
     }
 
@@ -790,47 +1255,67 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const pairs = getDiffPairs(lastTransText, correctedVal);
+
+    if (pairs.length > 0) {
+      const confirmOpenManager = await showCustomConfirm(currentLang === "zh"
+        ? `系統自動從您的修改中分析出 ${pairs.length} 個字詞修正對照：\n${pairs.map(p => `• "${p.wrong}" → "${p.correct}"`).join('\n')}\n\n是否開啟管理視窗進行檢視？`
+        : `Automatically extracted ${pairs.length} corrections:\n${pairs.map(p => `• "${p.wrong}" → "${p.correct}"`).join('\n')}\n\nOpen the manager to review and apply?`);
+      
+      if (confirmOpenManager) {
+        const btnManageReplacements = document.getElementById("btn-manage-replacements") as HTMLButtonElement;
+        if (btnManageReplacements) {
+          btnManageReplacements.click();
+          
+          pairs.forEach(pair => {
+            const dup = modalReplacements.find(r => r.wrong === pair.wrong);
+            if (dup) {
+              dup.correct = pair.correct;
+            } else {
+              modalReplacements.push(pair);
+            }
+          });
+          
+          renderReplacementsList();
+          updateCount();
+          
+          if (replacementSearchInput) replacementSearchInput.focus();
+        }
+        return;
+      }
+    }
+
+    let wrong = "";
+    let correct = "";
+    
     const diff = extractDifference(lastTransText, correctedVal);
     if (diff) {
-      const { wrong, correct } = diff;
-      let existingReplacements = textReplacementsInput.value.trim();
-      const newRule = `${wrong} -> ${correct}`;
-      
-      if (existingReplacements) {
-        existingReplacements = existingReplacements + "\n" + newRule;
-      } else {
-        existingReplacements = newRule;
-      }
-      
-      textReplacementsInput.value = existingReplacements;
-      await saveConfig();
-      
-      const oldText = learnBtn.textContent;
-      learnBtn.textContent = dict["btn-learn-success"] || "Learned!";
-      learnBtn.disabled = true;
-      setTimeout(() => {
-        learnBtn.textContent = oldText;
-        learnBtn.disabled = false;
-      }, 1500);
+      wrong = diff.wrong;
+      correct = diff.correct;
     } else {
-      let existingReplacements = textReplacementsInput.value.trim();
-      const newRule = `${lastTransText} -> ${correctedVal}`;
-      if (existingReplacements) {
-        existingReplacements = existingReplacements + "\n" + newRule;
-      } else {
-        existingReplacements = newRule;
-      }
-      textReplacementsInput.value = existingReplacements;
-      await saveConfig();
-      
-      const oldText = learnBtn.textContent;
-      learnBtn.textContent = dict["btn-learn-success"] || "Learned!";
-      learnBtn.disabled = true;
-      setTimeout(() => {
-        learnBtn.textContent = oldText;
-        learnBtn.disabled = false;
-      }, 1500);
+      wrong = lastTransText;
+      correct = correctedVal;
     }
+
+    let existingReplacements = textReplacementsInput.value.trim();
+    const newRule = `${wrong} -> ${correct}`;
+    
+    if (existingReplacements) {
+      existingReplacements = existingReplacements + "\n" + newRule;
+    } else {
+      existingReplacements = newRule;
+    }
+    
+    textReplacementsInput.value = existingReplacements;
+    await saveConfig();
+    
+    const oldText = learnBtn.textContent;
+    learnBtn.textContent = dict["btn-learn-success"] || "Learned!";
+    learnBtn.disabled = true;
+    setTimeout(() => {
+      learnBtn.textContent = oldText;
+      learnBtn.disabled = false;
+    }, 1500);
   });
   
   browseStorageBtn.addEventListener("click", async () => {
@@ -838,6 +1323,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const selected = await invoke<string | null>("select_directory");
       if (selected) {
         storagePathInput.value = selected;
+        onSettingChanged();
       }
     } catch (err) {
       console.error("Failed to select directory:", err);
@@ -847,6 +1333,134 @@ window.addEventListener("DOMContentLoaded", () => {
   if (reinstallWizardBtn) {
     reinstallWizardBtn.addEventListener("click", () => {
       runDependencyChecks(true);
+    });
+  }
+
+  if (setupCheckEngineBtn) {
+    setupCheckEngineBtn.addEventListener("click", async () => {
+      const storagePath = setupStoragePathInput.value.trim();
+      const currentLang = appLanguageSelect.value || "zh";
+      
+      // 1. Update config on disk immediately with the selected path
+      if (currentConfig) {
+        currentConfig.storage_path = storagePath;
+        await invoke("set_config", { newConfig: currentConfig });
+      }
+
+      // 2. Recheck and update UI
+      await runDependencyChecks(true);
+
+      // 3. Fetch latest checked state
+      try {
+        const status = await invoke<DependencyStatus>("check_dependencies");
+        const isCudaMode = setupEngineSelect.value === "cuda";
+        const isEngineInstalled = isCudaMode ? status.appdata_engine_exists : status.engine_exists;
+
+        if (isEngineInstalled) {
+          if (isCudaMode) {
+            await showCustomAlert(currentLang === "zh" 
+              ? "找到 CUDA 語音引擎檔案！已成功檢測到 whisper-server.exe！" 
+              : "CUDA Engine found! Successfully detected whisper-server.exe!");
+          } else {
+            await showCustomAlert(currentLang === "zh" 
+              ? "已採用程式內置之 CPU 語音引擎，免安裝開箱即用！" 
+              : "Using built-in CPU Engine. Ready to use out-of-the-box!");
+          }
+        } else {
+          const expectedPath = storagePath 
+            ? `${storagePath}\\bin\\whisper-server.exe` 
+            : `(預設 AppData)\\bin\\whisper-server.exe`;
+          await showCustomAlert(currentLang === "zh"
+            ? `未檢測到本機 CUDA 引擎檔！請確認你已將 CUDA 引擎包解壓至：\n${expectedPath}`
+            : `CUDA Engine not found! Please make sure you have extracted the CUDA engine to:\n${expectedPath}`);
+        }
+      } catch (err) {
+        console.error("Failed to check local engine:", err);
+      }
+    });
+  }
+
+  if (setupRemoveCudaBtn) {
+    setupRemoveCudaBtn.addEventListener("click", async () => {
+      const currentLang = appLanguageSelect.value || "zh";
+      const confirmRemove = await showCustomConfirm(currentLang === "zh"
+        ? "確定要移除本機 CUDA 加速引擎嗎？這將刪除 custom bin 資料夾（約釋放 1.2GB 空間），程式會切換回內置 CPU 引擎。"
+        : "Are you sure you want to remove the CUDA engine? This will delete the custom bin folder (~1.2GB space) and switch back to the built-in CPU engine.");
+      
+      if (!confirmRemove) return;
+
+      try {
+        await invoke("delete_cuda_files");
+        
+        // Revert dropdown value to cpu
+        setupEngineSelect.value = "cpu";
+        deviceSelect.value = "cpu";
+        
+        // Update UI
+        await runDependencyChecks(true);
+
+        await showCustomAlert(currentLang === "zh"
+          ? "已成功移除 CUDA 語音引擎，釋放約 1.2GB 空間！程式已自動切換回內置 CPU 模式。"
+          : "CUDA Engine removed! Reverted to built-in CPU mode successfully.");
+      } catch (err) {
+        console.error("Failed to remove CUDA files:", err);
+        await showCustomAlert(`Failed to remove CUDA: ${err}`);
+      }
+    });
+  }
+
+  if (setupCheckModelBtn) {
+    setupCheckModelBtn.addEventListener("click", async () => {
+      const storagePath = setupStoragePathInput.value.trim();
+      const currentLang = appLanguageSelect.value || "zh";
+      
+      // 1. Update config on disk immediately with the selected path
+      if (currentConfig) {
+        currentConfig.storage_path = storagePath;
+        await invoke("set_config", { newConfig: currentConfig });
+      }
+
+      // 2. Recheck and update UI
+      await runDependencyChecks(true);
+
+      // 3. Fetch checked state
+      try {
+        const status = await invoke<DependencyStatus>("check_dependencies");
+        if (status.model_exists) {
+          await showCustomAlert(currentLang === "zh" 
+            ? "找到模型檔案！已成功檢測到 ggml-large-v3-q5_0.bin！" 
+            : "Model found! Successfully detected ggml-large-v3-q5_0.bin!");
+        } else {
+          const expectedPath = storagePath 
+            ? `${storagePath}\\models\\ggml-large-v3-q5_0.bin` 
+            : `(預設 AppData)\\models\\ggml-large-v3-q5_0.bin`;
+          await showCustomAlert(currentLang === "zh"
+            ? `未找到模型檔案！請確認你已將模型放入：\n${expectedPath}`
+            : `Model file not found! Please make sure the model is placed in:\n${expectedPath}`);
+        }
+      } catch (err) {
+        console.error("Failed to check local model:", err);
+      }
+    });
+  }
+
+  if (setupCloseBtn) {
+    setupCloseBtn.addEventListener("click", async () => {
+      const overlay = document.getElementById("setup-overlay") as HTMLDivElement;
+      const currentLang = appLanguageSelect.value || "zh";
+      try {
+        const status = await invoke<DependencyStatus>("check_dependencies");
+        if (status.engine_exists && status.model_exists) {
+          overlay.classList.add("hidden");
+        } else {
+          await showCustomAlert(currentLang === "zh"
+            ? "語音引擎或模型檔案尚未安裝完成，請先完成下載或匯入！"
+            : "Engine or model files are missing. Please complete setup first!");
+        }
+      } catch (err) {
+        console.error("Failed to check status on close:", err);
+        overlay.classList.add("hidden");
+      }
     });
   }
 
@@ -873,11 +1487,11 @@ window.addEventListener("DOMContentLoaded", () => {
       try {
         const jsonStr = JSON.stringify(latestConfig, null, 2);
         await invoke("export_config_file", { configJson: jsonStr });
-        alert(currentLang === "zh" ? "匯出設定及學習資料成功！" : "Settings exported successfully!");
+        await showCustomAlert(currentLang === "zh" ? "匯出設定及學習資料成功！" : "Settings exported successfully!");
       } catch (err) {
         console.error("Export config failed:", err);
         if (err !== "Export cancelled by user") {
-          alert(`Export failed: ${err}`);
+          await showCustomAlert(`Export failed: ${err}`);
         }
       }
     });
@@ -903,11 +1517,11 @@ window.addEventListener("DOMContentLoaded", () => {
 
         currentConfig = importedConfig;
         await saveConfig();
-        alert(currentLang === "zh" ? "匯入設定及學習資料成功！" : "Settings imported successfully!");
+        await showCustomAlert(currentLang === "zh" ? "匯入設定及學習資料成功！" : "Settings imported successfully!");
       } catch (err) {
         console.error("Import config failed:", err);
         if (err !== "Import cancelled by user") {
-          alert(`Import failed: ${err}`);
+          await showCustomAlert(`Import failed: ${err}`);
         }
       }
     });
@@ -928,6 +1542,12 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById(targetTab!)?.classList.add("active");
     });
   });
+
+  if (setupEngineSelect) {
+    setupEngineSelect.addEventListener("change", () => {
+      runDependencyChecks(true);
+    });
+  }
   
   const logsContainer = document.getElementById("logs-container") as HTMLDivElement;
 
@@ -991,4 +1611,505 @@ window.addEventListener("DOMContentLoaded", () => {
       correctedTextInput.value = event.payload;
     }
   });
+
+  // Text Replacements Manager Modal Logic
+  const replacementsModal = document.getElementById("replacements-modal") as HTMLDivElement;
+  const btnManageReplacements = document.getElementById("btn-manage-replacements") as HTMLButtonElement;
+  const replacementsCloseBtn = document.getElementById("replacements-close-btn") as HTMLButtonElement;
+  const replacementSearchInput = document.getElementById("replacement-search") as HTMLInputElement;
+  const newReplacementWrongInput = document.getElementById("new-replacement-wrong") as HTMLInputElement;
+  const newReplacementCorrectInput = document.getElementById("new-replacement-correct") as HTMLInputElement;
+  const btnAddReplacement = document.getElementById("btn-add-replacement") as HTMLButtonElement;
+  const replacementsListContainer = document.getElementById("replacements-list-container") as HTMLDivElement;
+  const btnToggleBulkEdit = document.getElementById("btn-toggle-bulk-edit") as HTMLButtonElement;
+  const bulkEditContainer = document.getElementById("bulk-edit-container") as HTMLDivElement;
+  const replacementsBulkTextarea = document.getElementById("replacements-bulk-textarea") as HTMLTextAreaElement;
+  const replacementsSaveBtn = document.getElementById("replacements-save-btn") as HTMLButtonElement;
+
+  let modalReplacements: Array<{ wrong: string; correct: string }> = [];
+  let editingWrongKey: string | null = null;
+
+  function parseReplacements(text: string): Array<{ wrong: string; correct: string }> {
+    return text.split('\n')
+      .map(line => {
+        let delimiter = "";
+        if (line.includes("->")) {
+          delimiter = "->";
+        } else if (line.includes("→")) {
+          delimiter = "→";
+        }
+        
+        if (delimiter) {
+          const parts = line.split(delimiter).map(p => p.trim());
+          if (parts.length === 2 && parts[0]) {
+            return { wrong: parts[0], correct: parts[1] };
+          }
+        }
+        return null;
+      })
+      .filter((item): item is { wrong: string; correct: string } => item !== null);
+  }
+
+  function renderReplacementsList(filterText: string = "") {
+    replacementsListContainer.innerHTML = "";
+    
+    const searchLower = filterText.toLowerCase().trim();
+    const filtered = modalReplacements.filter(item => 
+      item.wrong.toLowerCase().includes(searchLower) || 
+      item.correct.toLowerCase().includes(searchLower)
+    );
+    
+    filtered.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "replacement-item-row";
+      
+      const currentLang = appLanguageSelect.value || "zh";
+      const dict = translations[currentLang] || translations["zh"];
+      
+      if (item.wrong === editingWrongKey) {
+        // Render in edit mode
+        const wrongInput = document.createElement("input");
+        wrongInput.type = "text";
+        wrongInput.className = "inline-edit-input";
+        wrongInput.value = item.wrong;
+        wrongInput.style.flex = "1";
+        wrongInput.style.height = "24px";
+        wrongInput.style.fontSize = "12px";
+        wrongInput.style.marginRight = "4px";
+        wrongInput.style.minWidth = "0";
+        
+        const arrowSpan = document.createElement("span");
+        arrowSpan.style.fontSize = "12px";
+        arrowSpan.style.color = "var(--text-secondary)";
+        arrowSpan.style.marginRight = "4px";
+        arrowSpan.textContent = "→";
+        
+        const correctInput = document.createElement("input");
+        correctInput.type = "text";
+        correctInput.className = "inline-edit-input";
+        correctInput.value = item.correct;
+        correctInput.style.flex = "1";
+        correctInput.style.height = "24px";
+        correctInput.style.fontSize = "12px";
+        correctInput.style.marginRight = "4px";
+        correctInput.style.minWidth = "0";
+        
+        const actionGroup = document.createElement("div");
+        actionGroup.style.display = "flex";
+        actionGroup.style.gap = "4px";
+        
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "secondary-btn";
+        saveBtn.style.padding = "2px 6px";
+        saveBtn.style.fontSize = "11px";
+        saveBtn.style.background = "var(--accent-green)";
+        saveBtn.style.color = "white";
+        saveBtn.style.borderColor = "var(--accent-green)";
+        saveBtn.textContent = "✓";
+        saveBtn.addEventListener("click", () => {
+          const wVal = wrongInput.value.trim();
+          const cVal = correctInput.value.trim();
+          if (wVal && cVal) {
+            const originalIndex = modalReplacements.findIndex(r => r.wrong === item.wrong);
+            if (originalIndex !== -1) {
+              const dupIndex = modalReplacements.findIndex((r, idx) => r.wrong === wVal && idx !== originalIndex);
+              if (dupIndex !== -1) {
+                showCustomAlert(currentLang === "zh" ? "此字詞修正規則已存在！" : "This wrong word rule already exists!");
+                return;
+              }
+              modalReplacements[originalIndex] = { wrong: wVal, correct: cVal };
+              editingWrongKey = null;
+              renderReplacementsList(replacementSearchInput.value);
+              updateCount();
+            }
+          }
+        });
+        
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "secondary-btn";
+        cancelBtn.style.padding = "2px 6px";
+        cancelBtn.style.fontSize = "11px";
+        cancelBtn.textContent = "×";
+        cancelBtn.addEventListener("click", () => {
+          editingWrongKey = null;
+          renderReplacementsList(replacementSearchInput.value);
+        });
+        
+        row.appendChild(wrongInput);
+        row.appendChild(arrowSpan);
+        row.appendChild(correctInput);
+        actionGroup.appendChild(saveBtn);
+        actionGroup.appendChild(cancelBtn);
+        row.appendChild(actionGroup);
+      } else {
+        // Render in view mode
+        const textSpan = document.createElement("span");
+        textSpan.className = "replacement-item-text";
+        textSpan.innerHTML = `<span>${item.wrong}</span> <span class="replacement-item-arrow">→</span> <span>${item.correct}</span>`;
+        
+        const actionGroup = document.createElement("div");
+        actionGroup.style.display = "flex";
+        actionGroup.style.gap = "4px";
+        actionGroup.style.alignItems = "center";
+        
+        const editBtn = document.createElement("button");
+        editBtn.className = "secondary-btn";
+        editBtn.style.padding = "2px 6px";
+        editBtn.style.fontSize = "11px";
+        editBtn.style.background = "transparent";
+        editBtn.style.color = "var(--accent-blue)";
+        editBtn.style.borderColor = "var(--accent-blue)";
+        editBtn.textContent = dict["btn-edit"] || "編輯";
+        editBtn.addEventListener("click", () => {
+          editingWrongKey = item.wrong;
+          renderReplacementsList(replacementSearchInput.value);
+        });
+        
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "replacement-delete-btn";
+        deleteBtn.innerHTML = "&times;";
+        deleteBtn.style.margin = "0";
+        deleteBtn.style.padding = "2px 6px";
+        deleteBtn.addEventListener("click", () => {
+          const originalIndex = modalReplacements.findIndex(r => r.wrong === item.wrong && r.correct === item.correct);
+          if (originalIndex !== -1) {
+            modalReplacements.splice(originalIndex, 1);
+            renderReplacementsList(replacementSearchInput.value);
+            updateCount();
+          }
+        });
+        
+        row.appendChild(textSpan);
+        actionGroup.appendChild(editBtn);
+        actionGroup.appendChild(deleteBtn);
+        row.appendChild(actionGroup);
+      }
+      
+      replacementsListContainer.appendChild(row);
+    });
+    
+    replacementsBulkTextarea.value = modalReplacements.map(r => `${r.wrong} -> ${r.correct}`).join('\n');
+  }
+
+  function updateCount() {
+    const countText = document.getElementById("replacements-count-text") as HTMLSpanElement;
+    const currentLang = appLanguageSelect.value || "zh";
+    const dict = translations[currentLang] || translations["zh"];
+    countText.textContent = dict["count-rules"].replace("{count}", modalReplacements.length.toString());
+  }
+
+  if (btnManageReplacements) {
+    btnManageReplacements.addEventListener("click", () => {
+      const text = textReplacementsInput.value;
+      modalReplacements = parseReplacements(text);
+      
+      bulkEditContainer.classList.add("hidden");
+      const currentLang = appLanguageSelect.value || "zh";
+      const dict = translations[currentLang] || translations["zh"];
+      if (btnToggleBulkEdit) btnToggleBulkEdit.textContent = dict["btn-bulk-edit"] || "Switch to Bulk Edit";
+      
+      replacementSearchInput.value = "";
+      newReplacementWrongInput.value = "";
+      newReplacementCorrectInput.value = "";
+      
+      renderReplacementsList();
+      updateCount();
+      
+      replacementsModal.classList.remove("hidden");
+    });
+  }
+
+  if (replacementsCloseBtn) {
+    replacementsCloseBtn.addEventListener("click", () => {
+      replacementsModal.classList.add("hidden");
+    });
+  }
+
+  if (replacementSearchInput) {
+    replacementSearchInput.addEventListener("input", (e) => {
+      const target = e.target as HTMLInputElement;
+      renderReplacementsList(target.value);
+    });
+  }
+
+  if (btnAddReplacement) {
+    btnAddReplacement.addEventListener("click", () => {
+      const wrongVal = newReplacementWrongInput.value.trim();
+      const correctVal = newReplacementCorrectInput.value.trim();
+      
+      if (wrongVal && correctVal) {
+        const dup = modalReplacements.find(r => r.wrong === wrongVal);
+        if (dup) {
+          dup.correct = correctVal;
+        } else {
+          modalReplacements.push({ wrong: wrongVal, correct: correctVal });
+        }
+        newReplacementWrongInput.value = "";
+        newReplacementCorrectInput.value = "";
+        renderReplacementsList(replacementSearchInput.value);
+        updateCount();
+      }
+    });
+  }
+
+  if (btnToggleBulkEdit) {
+    btnToggleBulkEdit.addEventListener("click", () => {
+      const isHidden = bulkEditContainer.classList.contains("hidden");
+      const currentLang = appLanguageSelect.value || "zh";
+      const dict = translations[currentLang] || translations["zh"];
+      
+      if (isHidden) {
+        bulkEditContainer.classList.remove("hidden");
+        btnToggleBulkEdit.textContent = dict["btn-list-view"] || "Switch to List View";
+      } else {
+        bulkEditContainer.classList.add("hidden");
+        btnToggleBulkEdit.textContent = dict["btn-bulk-edit"] || "Switch to Bulk Edit";
+        modalReplacements = parseReplacements(replacementsBulkTextarea.value);
+        renderReplacementsList(replacementSearchInput.value);
+        updateCount();
+      }
+    });
+  }
+
+  if (replacementsSaveBtn) {
+    replacementsSaveBtn.addEventListener("click", async () => {
+      if (!bulkEditContainer.classList.contains("hidden")) {
+        modalReplacements = parseReplacements(replacementsBulkTextarea.value);
+      }
+      
+      textReplacementsInput.value = modalReplacements.map(r => `${r.wrong} -> ${r.correct}`).join('\n');
+      replacementsModal.classList.add("hidden");
+      await saveConfig();
+    });
+  }
+
+  // ==========================================
+  // Custom Vocabulary Manager Modal Logic
+  // ==========================================
+  const vocabularyModal = document.getElementById("vocabulary-modal") as HTMLDivElement;
+  const vocabularyCloseBtn = document.getElementById("vocabulary-close-btn") as HTMLButtonElement;
+  const btnManageVocabulary = document.getElementById("btn-manage-vocabulary") as HTMLButtonElement;
+  const vocabularySearchInput = document.getElementById("vocabulary-search") as HTMLInputElement;
+  const newVocabularyWordInput = document.getElementById("new-vocabulary-word") as HTMLInputElement;
+  const btnAddVocabulary = document.getElementById("btn-add-vocabulary") as HTMLButtonElement;
+  const vocabularyListContainer = document.getElementById("vocabulary-list-container") as HTMLDivElement;
+  const btnToggleVocabBulk = document.getElementById("btn-toggle-vocab-bulk") as HTMLButtonElement;
+  const vocabularyCountText = document.getElementById("vocabulary-count-text") as HTMLSpanElement;
+  const vocabBulkContainer = document.getElementById("vocab-bulk-container") as HTMLDivElement;
+  const vocabularyBulkTextarea = document.getElementById("vocabulary-bulk-textarea") as HTMLTextAreaElement;
+  const vocabularySaveBtn = document.getElementById("vocabulary-save-btn") as HTMLButtonElement;
+
+  let modalVocabulary: string[] = [];
+
+  function parseVocabulary(text: string): string[] {
+    return text.split(',')
+      .map(w => w.trim())
+      .filter(w => w.length > 0);
+  }
+
+  let editingWordKey: string | null = null;
+
+  function renderVocabularyList(filterText: string = "") {
+    vocabularyListContainer.innerHTML = "";
+    
+    const searchLower = filterText.toLowerCase().trim();
+    const filtered = modalVocabulary.filter(word => 
+      word.toLowerCase().includes(searchLower)
+    );
+    
+    filtered.forEach(word => {
+      const row = document.createElement("div");
+      row.className = "replacement-item-row";
+      
+      const currentLang = appLanguageSelect.value || "zh";
+      const dict = translations[currentLang] || translations["zh"];
+      
+      if (word === editingWordKey) {
+        const wordInput = document.createElement("input");
+        wordInput.type = "text";
+        wordInput.className = "inline-edit-input";
+        wordInput.value = word;
+        wordInput.style.flex = "1";
+        wordInput.style.height = "24px";
+        wordInput.style.fontSize = "12px";
+        wordInput.style.marginRight = "4px";
+        wordInput.style.minWidth = "0";
+        
+        const actionGroup = document.createElement("div");
+        actionGroup.style.display = "flex";
+        actionGroup.style.gap = "4px";
+        
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "secondary-btn";
+        saveBtn.style.padding = "2px 6px";
+        saveBtn.style.fontSize = "11px";
+        saveBtn.style.background = "var(--accent-green)";
+        saveBtn.style.color = "white";
+        saveBtn.style.borderColor = "var(--accent-green)";
+        saveBtn.textContent = "✓";
+        saveBtn.addEventListener("click", () => {
+          const wVal = wordInput.value.trim();
+          if (wVal) {
+            const originalIndex = modalVocabulary.indexOf(word);
+            if (originalIndex !== -1) {
+              const dupIndex = modalVocabulary.indexOf(wVal);
+              if (dupIndex !== -1 && dupIndex !== originalIndex) {
+                showCustomAlert(currentLang === "zh" ? "此自訂詞彙已存在！" : "This vocabulary word already exists!");
+                return;
+              }
+              modalVocabulary[originalIndex] = wVal;
+              editingWordKey = null;
+              renderVocabularyList(vocabularySearchInput.value);
+              updateVocabCount();
+            }
+          }
+        });
+        
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "secondary-btn";
+        cancelBtn.style.padding = "2px 6px";
+        cancelBtn.style.fontSize = "11px";
+        cancelBtn.textContent = "×";
+        cancelBtn.addEventListener("click", () => {
+          editingWordKey = null;
+          renderVocabularyList(vocabularySearchInput.value);
+        });
+        
+        row.appendChild(wordInput);
+        actionGroup.appendChild(saveBtn);
+        actionGroup.appendChild(cancelBtn);
+        row.appendChild(actionGroup);
+      } else {
+        const textSpan = document.createElement("span");
+        textSpan.className = "replacement-item-text";
+        textSpan.style.fontWeight = "500";
+        textSpan.textContent = word;
+        
+        const actionGroup = document.createElement("div");
+        actionGroup.style.display = "flex";
+        actionGroup.style.gap = "4px";
+        actionGroup.style.alignItems = "center";
+        
+        const editBtn = document.createElement("button");
+        editBtn.className = "secondary-btn";
+        editBtn.style.padding = "2px 6px";
+        editBtn.style.fontSize = "11px";
+        editBtn.style.background = "transparent";
+        editBtn.style.color = "var(--accent-blue)";
+        editBtn.style.borderColor = "var(--accent-blue)";
+        editBtn.textContent = dict["btn-edit"] || "編輯";
+        editBtn.addEventListener("click", () => {
+          editingWordKey = word;
+          renderVocabularyList(vocabularySearchInput.value);
+        });
+        
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "replacement-delete-btn";
+        deleteBtn.innerHTML = "&times;";
+        deleteBtn.style.margin = "0";
+        deleteBtn.style.padding = "2px 6px";
+        deleteBtn.addEventListener("click", () => {
+          const index = modalVocabulary.indexOf(word);
+          if (index !== -1) {
+            modalVocabulary.splice(index, 1);
+            renderVocabularyList(vocabularySearchInput.value);
+            updateVocabCount();
+          }
+        });
+        
+        row.appendChild(textSpan);
+        actionGroup.appendChild(editBtn);
+        actionGroup.appendChild(deleteBtn);
+        row.appendChild(actionGroup);
+      }
+      
+      vocabularyListContainer.appendChild(row);
+    });
+    
+    vocabularyBulkTextarea.value = modalVocabulary.join(', ');
+  }
+
+  function updateVocabCount() {
+    const currentLang = appLanguageSelect.value || "zh";
+    const total = modalVocabulary.length;
+    vocabularyCountText.textContent = currentLang === "zh" 
+      ? `共 ${total} 個詞彙` 
+      : `${total} words in total`;
+  }
+
+  if (btnManageVocabulary) {
+    btnManageVocabulary.addEventListener("click", () => {
+      const text = customPromptInput.value;
+      modalVocabulary = parseVocabulary(text);
+      
+      vocabBulkContainer.classList.add("hidden");
+      const currentLang = appLanguageSelect.value || "zh";
+      btnToggleVocabBulk.textContent = currentLang === "zh" ? "切換至文字編輯" : "Switch to Bulk Edit";
+      
+      vocabularySearchInput.value = "";
+      newVocabularyWordInput.value = "";
+      
+      renderVocabularyList();
+      updateVocabCount();
+      
+      vocabularyModal.classList.remove("hidden");
+    });
+  }
+
+  if (vocabularyCloseBtn) {
+    vocabularyCloseBtn.addEventListener("click", () => {
+      vocabularyModal.classList.add("hidden");
+    });
+  }
+
+  if (vocabularySearchInput) {
+    vocabularySearchInput.addEventListener("input", (e) => {
+      const target = e.target as HTMLInputElement;
+      renderVocabularyList(target.value);
+    });
+  }
+
+  if (btnAddVocabulary) {
+    btnAddVocabulary.addEventListener("click", () => {
+      const word = newVocabularyWordInput.value.trim();
+      if (word) {
+        if (!modalVocabulary.includes(word)) {
+          modalVocabulary.push(word);
+        }
+        newVocabularyWordInput.value = "";
+        renderVocabularyList(vocabularySearchInput.value);
+        updateVocabCount();
+      }
+    });
+  }
+
+  if (btnToggleVocabBulk) {
+    btnToggleVocabBulk.addEventListener("click", () => {
+      const isHidden = vocabBulkContainer.classList.contains("hidden");
+      const currentLang = appLanguageSelect.value || "zh";
+      
+      if (isHidden) {
+        vocabBulkContainer.classList.remove("hidden");
+        btnToggleVocabBulk.textContent = currentLang === "zh" ? "切換至列表檢視" : "Switch to List View";
+      } else {
+        vocabBulkContainer.classList.add("hidden");
+        btnToggleVocabBulk.textContent = currentLang === "zh" ? "切換至文字編輯" : "Switch to Bulk Edit";
+        modalVocabulary = parseVocabulary(vocabularyBulkTextarea.value);
+        renderVocabularyList(vocabularySearchInput.value);
+        updateVocabCount();
+      }
+    });
+  }
+
+  if (vocabularySaveBtn) {
+    vocabularySaveBtn.addEventListener("click", async () => {
+      if (!vocabBulkContainer.classList.contains("hidden")) {
+        modalVocabulary = parseVocabulary(vocabularyBulkTextarea.value);
+      }
+      
+      customPromptInput.value = modalVocabulary.join(', ');
+      vocabularyModal.classList.add("hidden");
+      await saveConfig();
+    });
+  }
 });

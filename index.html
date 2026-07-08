@@ -17,7 +17,8 @@
     <main class="container glass-panel">
       <!-- Setup Overlay for Missing Dependencies -->
       <div id="setup-overlay" class="setup-overlay hidden">
-        <div class="setup-wizard">
+        <div class="setup-wizard" style="position: relative;">
+          <button id="setup-close-btn" class="setup-close-btn">&times;</button>
           <h2>🎙️ VoiceInput Setup Wizard</h2>
           <p class="setup-desc">Welcome! We need to download the AI Engine and Model files. They will be stored in your AppData directory.</p>
           
@@ -45,30 +46,6 @@
                 <option value="cuda" id="opt-setup-cuda">NVIDIA GPU Edition (CUDA / ~150MB)</option>
               </select>
             </div>
-
-            <div class="dependency-list">
-              <div class="dependency-item" id="dep-engine">
-                <div class="dep-info">
-                  <span class="dep-title">AI Engine (CPU Edition)</span>
-                  <span class="dep-status" id="dep-engine-status">Checking...</span>
-                </div>
-                <div class="progress-bar-container">
-                  <div class="progress-bar" id="dep-engine-bar" style="width: 0%"></div>
-                </div>
-                <span class="progress-text" id="dep-engine-text"></span>
-              </div>
-
-              <div class="dependency-item" id="dep-model">
-                <div class="dep-info">
-                  <span class="dep-title">AI Model (Large-v3 quantized)</span>
-                  <span class="dep-status" id="dep-model-status">Checking...</span>
-                </div>
-                <div class="progress-bar-container">
-                  <div class="progress-bar" id="dep-model-bar" style="width: 0%"></div>
-                </div>
-                <span class="progress-text" id="dep-model-text"></span>
-              </div>
-            </div>
           </div>
 
           <!-- Method B: Local Import Content -->
@@ -92,9 +69,125 @@
             </div>
           </div>
 
+          <!-- Dependency Status List (Visible for both tabs) -->
+          <div class="dependency-list" style="margin-top: 10px;">
+            <div class="dependency-item" id="dep-engine">
+              <div class="dep-info" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <span class="dep-title">AI Engine</span>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button id="setup-check-engine-btn" class="secondary-btn" style="padding: 2px 8px; font-size: 11px; border-color: var(--accent-green); color: var(--accent-green); height: 22px; margin: 0;">檢測本機</button>
+                  <button id="setup-remove-cuda-btn" class="secondary-btn hidden" style="padding: 2px 8px; font-size: 11px; border-color: #ff3c3c; color: #ff3c3c; height: 22px; margin: 0;">Remove CUDA / 移除</button>
+                  <span class="dep-status" id="dep-engine-status">Checking...</span>
+                </div>
+              </div>
+              <div class="progress-bar-container">
+                <div class="progress-bar" id="dep-engine-bar" style="width: 0%"></div>
+              </div>
+              <span class="progress-text" id="dep-engine-text"></span>
+            </div>
+
+            <div class="dependency-item" id="dep-model">
+              <div class="dep-info" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <span class="dep-title">AI Model (Large-v3 quantized)</span>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button id="setup-check-model-btn" class="secondary-btn" style="padding: 2px 8px; font-size: 11px; border-color: var(--accent-green); color: var(--accent-green); height: 22px; margin: 0;">檢測本機</button>
+                  <span class="dep-status" id="dep-model-status">Checking...</span>
+                </div>
+              </div>
+              <div class="progress-bar-container">
+                <div class="progress-bar" id="dep-model-bar" style="width: 0%"></div>
+              </div>
+              <span class="progress-text" id="dep-model-text"></span>
+            </div>
+          </div>
+
           <div class="setup-footer">
             <button id="start-download-btn" class="primary-btn">Download & Setup</button>
             <button id="start-import-btn" class="primary-btn hidden">Import & Install</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Text Replacements Manager Modal -->
+      <div id="replacements-modal" class="setup-overlay hidden">
+        <div class="setup-wizard" style="position: relative; max-width: 460px; width: 100%;">
+          <button id="replacements-close-btn" class="setup-close-btn">&times;</button>
+          <h2 id="modal-replacements-title">字詞自動修正管理</h2>
+          <p class="setup-desc" id="modal-replacements-desc">檢視、搜尋與編輯您的自動修正對照表規則。</p>
+          
+          <!-- Search & Add section -->
+          <div class="setup-group" style="width: 100%; gap: 10px;">
+            <div style="display: flex; gap: 8px; width: 100%;">
+              <input type="text" id="replacement-search" placeholder="搜尋規則..." style="flex-grow: 1; height: 32px;" />
+            </div>
+            
+            <div style="display: flex; gap: 8px; width: 100%; align-items: center; margin-top: 5px;">
+              <input type="text" id="new-replacement-wrong" placeholder="聽錯的字" style="flex: 1; height: 32px; min-width: 0;" />
+              <span style="color: var(--text-secondary);">→</span>
+              <input type="text" id="new-replacement-correct" placeholder="修正後" style="flex: 1; height: 32px; min-width: 0;" />
+              <button id="btn-add-replacement" class="secondary-btn" style="height: 32px; padding: 0 12px; margin: 0; border-color: var(--accent-blue); color: var(--accent-blue); flex-shrink: 0; white-space: nowrap;">新增</button>
+            </div>
+          </div>
+          
+          <!-- Rules List Container -->
+          <div style="display: flex; flex-direction: column; flex-grow: 1; min-height: 220px; max-height: 280px; overflow-y: auto; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--input-bg); padding: 8px;" id="replacements-list-container">
+            <!-- Rules will be dynamically generated here -->
+          </div>
+          
+          <!-- Toggle Bulk Edit Button & Count -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px; width: 100%;">
+            <button id="btn-toggle-bulk-edit" class="secondary-btn" style="font-size: 11px; padding: 4px 8px; margin: 0;">切換至文字編輯</button>
+            <span id="replacements-count-text" style="font-size: 11px; color: var(--text-secondary);">共 0 條規則</span>
+          </div>
+          
+          <!-- Bulk Textarea (Hidden by default) -->
+          <div id="bulk-edit-container" class="hidden" style="width: 100%; margin-top: 10px;">
+            <textarea id="replacements-bulk-textarea" rows="8" placeholder="每行一條規則，例如：&#10;崔斯 -> Travis&#10;特快司 -> Travis" style="width: 100%; font-family: monospace; font-size: 12px;"></textarea>
+          </div>
+
+          <div class="setup-footer" style="margin-top: 15px; width: 100%;">
+            <button id="replacements-save-btn" class="primary-btn" style="width: 100%;">套用變更</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Custom Vocabulary Manager Modal -->
+      <div id="vocabulary-modal" class="setup-overlay hidden">
+        <div class="setup-wizard" style="position: relative; max-width: 460px; width: 100%;">
+          <button id="vocabulary-close-btn" class="setup-close-btn">&times;</button>
+          <h2 id="modal-vocabulary-title">常用詞彙學習庫管理</h2>
+          <p class="setup-desc" id="modal-vocabulary-desc">檢視、搜尋與編輯您自訂的常用詞彙庫。</p>
+          
+          <!-- Search & Add section -->
+          <div class="setup-group" style="width: 100%; gap: 10px;">
+            <div style="display: flex; gap: 8px; width: 100%;">
+              <input type="text" id="vocabulary-search" placeholder="搜尋詞彙..." style="flex-grow: 1; height: 32px;" />
+            </div>
+            
+            <div style="display: flex; gap: 8px; width: 100%; align-items: center; margin-top: 5px;">
+              <input type="text" id="new-vocabulary-word" placeholder="輸入新的自訂詞彙..." style="flex: 1; height: 32px; min-width: 0;" />
+              <button id="btn-add-vocabulary" class="secondary-btn" style="height: 32px; padding: 0 12px; margin: 0; border-color: var(--accent-blue); color: var(--accent-blue); flex-shrink: 0; white-space: nowrap;">新增</button>
+            </div>
+          </div>
+          
+          <!-- Vocabulary List Container -->
+          <div style="display: flex; flex-direction: column; flex-grow: 1; min-height: 220px; max-height: 280px; overflow-y: auto; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--input-bg); padding: 8px;" id="vocabulary-list-container">
+            <!-- Words will be dynamically generated here -->
+          </div>
+          
+          <!-- Toggle Bulk Edit Button & Count -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px; width: 100%;">
+            <button id="btn-toggle-vocab-bulk" class="secondary-btn" style="font-size: 11px; padding: 4px 8px; margin: 0;">切換至文字編輯</button>
+            <span id="vocabulary-count-text" style="font-size: 11px; color: var(--text-secondary);">共 0 個詞彙</span>
+          </div>
+          
+          <!-- Bulk Textarea (Hidden by default) -->
+          <div id="vocab-bulk-container" class="hidden" style="width: 100%; margin-top: 10px;">
+            <textarea id="vocabulary-bulk-textarea" rows="8" placeholder="以逗號分隔，例如：&#10;Travis, Travis Studio, 廣東話, 零分" style="width: 100%; font-family: monospace; font-size: 12px;"></textarea>
+          </div>
+
+          <div class="setup-footer" style="margin-top: 15px; width: 100%;">
+            <button id="vocabulary-save-btn" class="primary-btn" style="width: 100%;">套用變更</button>
           </div>
         </div>
       </div>
@@ -128,7 +221,6 @@
         <section class="settings-grid">
           <!-- Hotkey Settings -->
           <div class="setting-group">
-            <h2><span class="icon">⌨️</span> Hotkey Settings</h2>
             
             <div class="setting-item">
               <label for="hotkey" id="lbl-hotkey">Activation Key</label>
@@ -162,13 +254,33 @@
                 <option value="en">English</option>
               </select>
             </div>
+
+            <div class="setting-item">
+              <label for="show-settings-on-startup" class="toggle-label">
+                <span id="lbl-show-settings-title">Show Settings on Startup</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="show-settings-on-startup">
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <label for="start-at-login" class="toggle-label">
+                <span id="lbl-start-at-login-title">Start at Windows Login</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="start-at-login">
+                <span class="slider round"></span>
+              </label>
+            </div>
           </div>
 
           <div class="divider"></div>
 
           <!-- AI Engine Settings -->
           <div class="setting-group">
-            <h2><span class="icon">🧠</span> AI Engine Settings</h2>
+            <h2 id="title-engine"><span class="icon">🧠</span> AI Engine Settings</h2>
             
             <div class="setting-item">
               <label for="cantonese-mode" class="toggle-label">
@@ -186,6 +298,20 @@
               <select id="device-select">
                 <option value="cpu">CPU (High Compatibility)</option>
                 <option value="cuda">NVIDIA GPU (CUDA)</option>
+              </select>
+            </div>
+
+            <div class="setting-item" id="cpu-threads-row">
+              <label for="cpu-threads-select" id="lbl-cpu-threads">CPU Threads</label>
+              <select id="cpu-threads-select">
+                <option value="0" id="opt-threads-auto">Auto (4 Threads)</option>
+                <option value="2">2</option>
+                <option value="4">4</option>
+                <option value="6">6</option>
+                <option value="8">8</option>
+                <option value="12">12</option>
+                <option value="16">16</option>
+                <option value="20">20</option>
               </select>
             </div>
 
@@ -253,16 +379,22 @@
             <h2 id="title-learning"><span class="icon">📝</span> AI Learning & Correction</h2>
             
             <div class="setting-item full-width">
-              <label for="custom-prompt" id="lbl-custom-prompt">Custom Vocabulary Prompt</label>
-              <input type="text" id="custom-prompt" placeholder="e.g. Travis, Travis Studio, 廣東話" style="width: 100%;" />
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 4px;">
+                <label for="custom-prompt" id="lbl-custom-prompt">Custom Vocabulary Prompt</label>
+                <button id="btn-manage-vocabulary" class="secondary-btn" style="padding: 2px 8px; font-size: 11px; height: 22px; margin: 0; border-color: var(--accent-blue); color: var(--accent-blue);">檢視與編輯</button>
+              </div>
+              <input type="text" id="custom-prompt" class="hidden" placeholder="e.g. Travis, Travis Studio, 廣東話, 零分, 唔該, 點算, 咗, 嗰" style="width: 100%;" />
               <p class="desc" id="lbl-custom-prompt-desc">Teach Whisper new words by listing them here (comma separated)</p>
             </div>
 
             <div class="setting-item full-width">
-              <label for="text-replacements" id="lbl-text-replacements">Text Replacements</label>
-              <textarea id="text-replacements" rows="4" placeholder="e.g. 崔斯 -> Travis&#10;特快司 -> Travis"></textarea>
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 4px;">
+                <label for="text-replacements" id="lbl-text-replacements">Text Replacements</label>
+                <button id="btn-manage-replacements" class="secondary-btn" style="padding: 2px 8px; font-size: 11px; height: 22px; margin: 0; border-color: var(--accent-blue); color: var(--accent-blue);">檢視與編輯</button>
+              </div>
+              <textarea id="text-replacements" class="hidden" rows="4" placeholder="e.g. 崔斯 -> Travis&#10;特快司 -> Travis" style="width: 100%;"></textarea>
               <p class="desc" id="lbl-text-replacements-desc">Correct persistent mistakes automatically (one rule per line: wrong -> correct)</p>
-          </div>
+            </div>
 
           <div class="divider"></div>
 
