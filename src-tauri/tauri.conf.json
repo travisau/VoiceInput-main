@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "VoiceInput",
-  "version": "1.0.0",
-  "identifier": "com.travis.voiceinput",
+  "version": "1.0.4",
+  "identifier": "voiceinput",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -30,12 +30,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    },
     "resources": [
       "bin/whisper-server.exe",
       "bin/whisper.dll",
       "bin/ggml.dll",
       "bin/ggml-base.dll",
+      "bin/ggml-cpu.dll",
+      "bin/ggml-vulkan.dll",
       "bin/ggml-cpu-alderlake.dll",
       "bin/ggml-cpu-cannonlake.dll",
       "bin/ggml-cpu-cascadelake.dll",
@@ -45,6 +52,9 @@
       "bin/ggml-cpu-skylakex.dll",
       "bin/ggml-cpu-sse42.dll",
       "bin/ggml-cpu-x64.dll",
+      "bin/MSVCP140.dll",
+      "bin/VCRUNTIME140.dll",
+      "bin/VCRUNTIME140_1.dll",
       "bin/SDL2.dll"
     ],
     "icon": [

@@ -1,6 +1,6 @@
 [package]
-name = "tauri-app"
-version = "1.0.0"
+name = "voiceinput"
+version = "1.0.4"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "tauri_app_lib"
+name = "voiceinput_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -34,4 +34,3 @@ once_cell = "1.21.4"
 rodio = "0.20.1"
 image = "0.25.10"
 zip = "8.6.0"
-

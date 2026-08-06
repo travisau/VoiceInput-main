@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface Config {
   model: string;
@@ -26,6 +27,20 @@ interface DependencyStatus {
   model_exists: boolean;
   appdata_dir: string;
   appdata_engine_exists: boolean;
+  vulkan_exists?: boolean;
+  appdata_vulkan_exists?: boolean;
+  cuda_exists?: boolean;
+  appdata_cuda_exists?: boolean;
+}
+
+function isEngineInstalled(status: DependencyStatus, engine: string): boolean {
+  if (engine === "amd") {
+    return status.engine_exists && !!status.vulkan_exists;
+  }
+  if (engine === "cuda") {
+    return status.appdata_engine_exists && !!status.appdata_cuda_exists;
+  }
+  return status.engine_exists;
 }
 
 let currentConfig: Config | null = null;
@@ -108,6 +123,8 @@ function showCustomAlert(message: string): Promise<void> {
     textEl.style.lineHeight = "1.6";
     textEl.style.margin = "0 0 20px 0";
     textEl.style.whiteSpace = "pre-wrap";
+    textEl.style.wordBreak = "break-all";
+    textEl.style.overflowWrap = "break-word";
     textEl.textContent = message;
 
     const okBtn = document.createElement("button");
@@ -223,6 +240,260 @@ function showCustomConfirm(message: string): Promise<boolean> {
   });
 }
 
+interface LearningModalOptions {
+  initialWrong: string;
+  initialCorrect: string;
+  fullOriginal: string;
+  fullCorrected: string;
+  appLanguage: string;
+}
+
+interface LearningModalResult {
+  wrong: string;
+  correct: string;
+  addReplacement: boolean;
+  addVocabulary: boolean;
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function showLearningWordEditModal(options: LearningModalOptions): Promise<LearningModalResult | null> {
+  return new Promise((resolve) => {
+    const isZh = options.appLanguage === "zh";
+
+    const modalOverlay = document.createElement("div");
+    modalOverlay.style.position = "fixed";
+    modalOverlay.style.top = "0";
+    modalOverlay.style.left = "0";
+    modalOverlay.style.width = "100%";
+    modalOverlay.style.height = "100%";
+    modalOverlay.style.background = "rgba(0, 0, 0, 0.65)";
+    modalOverlay.style.backdropFilter = "blur(12px)";
+    modalOverlay.style.display = "flex";
+    modalOverlay.style.justifyContent = "center";
+    modalOverlay.style.alignItems = "center";
+    modalOverlay.style.zIndex = "99999";
+    modalOverlay.style.animation = "fadeIn 0.2s ease";
+
+    const modalBox = document.createElement("div");
+    modalBox.style.width = "90%";
+    modalBox.style.maxWidth = "460px";
+    modalBox.style.background = "var(--panel-bg, #1e1e2d)";
+    modalBox.style.border = "1px solid var(--panel-border, #323248)";
+    modalBox.style.borderRadius = "16px";
+    modalBox.style.padding = "24px";
+    modalBox.style.boxShadow = "0 24px 48px rgba(0,0,0,0.6)";
+    modalBox.style.textAlign = "left";
+    modalBox.style.transform = "scale(0.95)";
+    modalBox.style.transition = "transform 0.2s ease";
+
+    const titleEl = document.createElement("h3");
+    titleEl.style.fontSize = "16px";
+    titleEl.style.fontWeight = "600";
+    titleEl.style.color = "var(--text-primary, #ffffff)";
+    titleEl.style.margin = "0 0 6px 0";
+    titleEl.style.display = "flex";
+    titleEl.style.alignItems = "center";
+    titleEl.style.gap = "8px";
+    titleEl.innerHTML = `<span>📝</span> ${isZh ? "字詞學習與前後文微調" : "Learn & Adjust Word / Phrase"}`;
+
+    const descEl = document.createElement("p");
+    descEl.style.fontSize = "12px";
+    descEl.style.color = "var(--text-secondary, #a0a0b8)";
+    descEl.style.lineHeight = "1.5";
+    descEl.style.margin = "0 0 16px 0";
+    descEl.textContent = isZh
+      ? "廣東話建議以完整「字詞/短語」進行學習，避免單字誤替換。您可在下方手動調整前後字詞範圍："
+      : "For Cantonese speech, learning full words/phrases prevents single-character misreplacements. Adjust the word range below:";
+
+    const previewContainer = document.createElement("div");
+    previewContainer.style.background = "rgba(0, 0, 0, 0.25)";
+    previewContainer.style.borderRadius = "10px";
+    previewContainer.style.padding = "10px 14px";
+    previewContainer.style.marginBottom = "16px";
+    previewContainer.style.border = "1px solid rgba(255, 255, 255, 0.08)";
+    previewContainer.style.fontSize = "12px";
+
+    const origPrev = document.createElement("div");
+    origPrev.style.color = "var(--text-secondary, #aaa)";
+    origPrev.style.marginBottom = "4px";
+    origPrev.innerHTML = `<strong style="color:#ff6b6b">${isZh ? "原本辨識：" : "Original:"}</strong> ${escapeHtml(options.fullOriginal)}`;
+
+    const corrPrev = document.createElement("div");
+    corrPrev.style.color = "var(--text-primary, #fff)";
+    corrPrev.innerHTML = `<strong style="color:#51cf66">${isZh ? "修正句子：" : "Corrected:"}</strong> ${escapeHtml(options.fullCorrected)}`;
+
+    previewContainer.appendChild(origPrev);
+    previewContainer.appendChild(corrPrev);
+
+    const formGroup = document.createElement("div");
+    formGroup.style.display = "flex";
+    formGroup.style.flexDirection = "column";
+    formGroup.style.gap = "12px";
+    formGroup.style.marginBottom = "16px";
+
+    const wrongWrapper = document.createElement("div");
+    const wrongLabel = document.createElement("label");
+    wrongLabel.style.fontSize = "12px";
+    wrongLabel.style.fontWeight = "500";
+    wrongLabel.style.color = "var(--text-secondary, #aaa)";
+    wrongLabel.style.marginBottom = "4px";
+    wrongLabel.style.display = "block";
+    wrongLabel.textContent = isZh ? "原本聽錯的字詞（可連同前後文一同修改）：" : "Original Wrong Word/Phrase (or with context):";
+
+    const wrongInput = document.createElement("input");
+    wrongInput.type = "text";
+    wrongInput.value = options.initialWrong;
+    wrongInput.style.width = "100%";
+    wrongInput.style.padding = "8px 12px";
+    wrongInput.style.fontSize = "13px";
+    wrongInput.style.borderRadius = "8px";
+    wrongInput.style.border = "1px solid var(--panel-border, #444)";
+    wrongInput.style.background = "rgba(255,255,255,0.05)";
+    wrongInput.style.color = "var(--text-primary, #fff)";
+    wrongInput.style.boxSizing = "border-box";
+    wrongWrapper.appendChild(wrongLabel);
+    wrongWrapper.appendChild(wrongInput);
+
+    const correctWrapper = document.createElement("div");
+    const correctLabel = document.createElement("label");
+    correctLabel.style.fontSize = "12px";
+    correctLabel.style.fontWeight = "500";
+    correctLabel.style.color = "var(--text-secondary, #aaa)";
+    correctLabel.style.marginBottom = "4px";
+    correctLabel.style.display = "block";
+    correctLabel.textContent = isZh ? "修正後的正確字詞（可連同前後文一同修改）：" : "Corrected Word/Phrase (or with context):";
+
+    const correctInput = document.createElement("input");
+    correctInput.type = "text";
+    correctInput.value = options.initialCorrect;
+    correctInput.style.width = "100%";
+    correctInput.style.padding = "8px 12px";
+    correctInput.style.fontSize = "13px";
+    correctInput.style.borderRadius = "8px";
+    correctInput.style.border = "1px solid var(--panel-border, #444)";
+    correctInput.style.background = "rgba(255,255,255,0.05)";
+    correctInput.style.color = "var(--text-primary, #fff)";
+    correctInput.style.boxSizing = "border-box";
+    correctWrapper.appendChild(correctLabel);
+    correctWrapper.appendChild(correctInput);
+
+    formGroup.appendChild(wrongWrapper);
+    formGroup.appendChild(correctWrapper);
+
+    const scopeContainer = document.createElement("div");
+    scopeContainer.style.display = "flex";
+    scopeContainer.style.flexDirection = "column";
+    scopeContainer.style.gap = "8px";
+    scopeContainer.style.marginBottom = "20px";
+    scopeContainer.style.padding = "10px 12px";
+    scopeContainer.style.background = "rgba(255,255,255,0.03)";
+    scopeContainer.style.borderRadius = "8px";
+    scopeContainer.style.border = "1px solid rgba(255,255,255,0.05)";
+
+    const chkReplLabel = document.createElement("label");
+    chkReplLabel.style.display = "flex";
+    chkReplLabel.style.alignItems = "center";
+    chkReplLabel.style.gap = "8px";
+    chkReplLabel.style.fontSize = "12px";
+    chkReplLabel.style.color = "var(--text-primary, #fff)";
+    chkReplLabel.style.cursor = "pointer";
+
+    const chkRepl = document.createElement("input");
+    chkRepl.type = "checkbox";
+    chkRepl.checked = true;
+    chkReplLabel.appendChild(chkRepl);
+    chkReplLabel.appendChild(document.createTextNode(isZh ? "加入「字詞自動替換對照表」(放至最頂部)" : "Add to Auto Text Replacements (placed at top)"));
+
+    const chkVocabLabel = document.createElement("label");
+    chkVocabLabel.style.display = "flex";
+    chkVocabLabel.style.alignItems = "center";
+    chkVocabLabel.style.gap = "8px";
+    chkVocabLabel.style.fontSize = "12px";
+    chkVocabLabel.style.color = "var(--text-primary, #fff)";
+    chkVocabLabel.style.cursor = "pointer";
+
+    const chkVocab = document.createElement("input");
+    chkVocab.type = "checkbox";
+    chkVocab.checked = true;
+    chkVocabLabel.appendChild(chkVocab);
+    chkVocabLabel.appendChild(document.createTextNode(isZh ? "加入 Whisper 常用詞彙 Prompt (放至最頂部)" : "Add to Whisper Custom Vocabulary (placed at top)"));
+
+    scopeContainer.appendChild(chkReplLabel);
+    scopeContainer.appendChild(chkVocabLabel);
+
+    const btnGroup = document.createElement("div");
+    btnGroup.style.display = "flex";
+    btnGroup.style.gap = "10px";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "secondary-btn";
+    cancelBtn.style.flex = "1";
+    cancelBtn.style.padding = "9px 0";
+    cancelBtn.style.fontSize = "13px";
+    cancelBtn.style.margin = "0";
+    cancelBtn.style.cursor = "pointer";
+    cancelBtn.textContent = isZh ? "取消" : "Cancel";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "primary-btn";
+    saveBtn.style.flex = "1.5";
+    saveBtn.style.padding = "9px 0";
+    saveBtn.style.fontSize = "13px";
+    saveBtn.style.margin = "0";
+    saveBtn.style.cursor = "pointer";
+    saveBtn.textContent = isZh ? "儲存學習規則" : "Save Learning Rule";
+
+    btnGroup.appendChild(cancelBtn);
+    btnGroup.appendChild(saveBtn);
+
+    modalBox.appendChild(titleEl);
+    modalBox.appendChild(descEl);
+    modalBox.appendChild(previewContainer);
+    modalBox.appendChild(formGroup);
+    modalBox.appendChild(scopeContainer);
+    modalBox.appendChild(btnGroup);
+
+    modalOverlay.appendChild(modalBox);
+    document.body.appendChild(modalOverlay);
+
+    setTimeout(() => {
+      modalBox.style.transform = "scale(1)";
+      correctInput.focus();
+    }, 10);
+
+    const closeHandler = (result: LearningModalResult | null) => {
+      modalBox.style.transform = "scale(0.95)";
+      modalOverlay.style.opacity = "0";
+      setTimeout(() => {
+        if (document.body.contains(modalOverlay)) {
+          document.body.removeChild(modalOverlay);
+        }
+        resolve(result);
+      }, 150);
+    };
+
+    cancelBtn.addEventListener("click", () => closeHandler(null));
+
+    saveBtn.addEventListener("click", () => {
+      const wVal = wrongInput.value.trim();
+      const cVal = correctInput.value.trim();
+      if (!cVal) {
+        correctInput.focus();
+        return;
+      }
+      closeHandler({
+        wrong: wVal,
+        correct: cVal,
+        addReplacement: chkRepl.checked,
+        addVocabulary: chkVocab.checked,
+      });
+    });
+  });
+}
+
 const translations: Record<string, Record<string, string>> = {
   zh: {
     "tab-settings": "⚙️ 系統設定",
@@ -243,6 +514,7 @@ const translations: Record<string, Record<string, string>> = {
     "lbl-device-select": "運算裝置",
     "opt-device-cpu": "CPU (高相容性，支援所有電腦)",
     "opt-device-cuda": "NVIDIA GPU (需 CUDA 支援，速度最快)",
+    "opt-device-amd": "AMD GPU (Vulkan 加速，適合 AMD 顯示卡)",
     "lbl-model-select": "AI 語音模型",
     "lbl-chinese-output": "文字輸出格式",
     "opt-chinese-tw": "繁體中文 (台灣/香港)",
@@ -284,6 +556,7 @@ const translations: Record<string, Record<string, string>> = {
     "lbl-setup-engine-select": "AI 運算引擎版本",
     "opt-setup-cpu": "CPU 版本 (相容性最高，檔案僅 4.4MB)",
     "opt-setup-cuda": "NVIDIA GPU CUDA 版本 (速度極快，需 NVIDIA 顯卡)",
+    "opt-setup-amd": "AMD GPU / Vulkan 版本 (支援 AMD 顯示卡加速)",
     "lbl-custom-prompt": "常用詞彙學習庫",
     "lbl-custom-prompt-desc": "讓 AI 學習新詞彙，在此輸入你經常使用的專有名詞、姓名、產品名等（用逗號隔開）",
     "lbl-text-replacements": "字詞自動修正對照表",
@@ -341,6 +614,7 @@ const translations: Record<string, Record<string, string>> = {
     "lbl-device-select": "Device",
     "opt-device-cpu": "CPU (High Compatibility)",
     "opt-device-cuda": "NVIDIA GPU (Requires CUDA)",
+    "opt-device-amd": "AMD GPU (Vulkan)",
     "lbl-model-select": "AI Model",
     "lbl-chinese-output": "Text Output format",
     "opt-chinese-tw": "Traditional Chinese (繁體中文)",
@@ -382,6 +656,7 @@ const translations: Record<string, Record<string, string>> = {
     "lbl-setup-engine-select": "AI Engine Edition",
     "opt-setup-cpu": "CPU Edition (Highly Compatible, 4.4MB)",
     "opt-setup-cuda": "NVIDIA GPU Edition (CUDA, requires NVIDIA GPU)",
+    "opt-setup-amd": "AMD GPU / Vulkan Edition (Supports AMD GPUs)",
     "lbl-custom-prompt": "Custom Vocabulary Prompt",
     "lbl-custom-prompt-desc": "Teach Whisper new words by listing them here (comma separated)",
     "lbl-text-replacements": "Text Replacements",
@@ -549,6 +824,8 @@ function updateUILanguage(lang: string) {
   if (optDeviceCpu) optDeviceCpu.textContent = dict["opt-device-cpu"];
   const optDeviceCuda = deviceSelect.querySelector('option[value="cuda"]') as HTMLOptionElement;
   if (optDeviceCuda) optDeviceCuda.textContent = dict["opt-device-cuda"];
+  const optDeviceAmd = deviceSelect.querySelector('option[value="amd"]') as HTMLOptionElement;
+  if (optDeviceAmd) optDeviceAmd.textContent = dict["opt-device-amd"];
 
   const optSoundModern = soundModeSelect.querySelector('option[value="modern"]') as HTMLOptionElement;
   if (optSoundModern) optSoundModern.textContent = dict["opt-sound-modern"];
@@ -585,6 +862,8 @@ function updateUILanguage(lang: string) {
     if (optSetupCpu) optSetupCpu.textContent = dict["opt-setup-cpu"];
     const optSetupCuda = setupEngineSelect.querySelector('option[value="cuda"]') as HTMLOptionElement;
     if (optSetupCuda) optSetupCuda.textContent = dict["opt-setup-cuda"];
+    const optSetupAmd = setupEngineSelect.querySelector('option[value="amd"]') as HTMLOptionElement;
+    if (optSetupAmd) optSetupAmd.textContent = dict["opt-setup-amd"];
   }
   
   const lblImportEngine = document.getElementById("lbl-import-engine");
@@ -604,6 +883,8 @@ function updateUILanguage(lang: string) {
   if (depEngineTitle) {
     if (setupEngineSelect && setupEngineSelect.value === "cuda") {
       depEngineTitle.textContent = lang === "zh" ? "AI 語音引擎 (CUDA版本)" : "AI Engine (CUDA Edition)";
+    } else if (setupEngineSelect && setupEngineSelect.value === "amd") {
+      depEngineTitle.textContent = lang === "zh" ? "AI 語音引擎 (AMD Vulkan版本)" : "AI Engine (AMD Vulkan Edition)";
     } else {
       depEngineTitle.textContent = dict["setup-engine-title"];
     }
@@ -680,9 +961,11 @@ async function loadConfig() {
       appLanguageSelect.value = currentConfig.app_language;
       cantoneseModeToggle.checked = currentConfig.cantonese_mode;
       deviceSelect.value = currentConfig.device || "cpu";
+      setupEngineSelect.value = currentConfig.device || "cpu";
       modelSelect.value = currentConfig.model;
       chineseOutputSelect.value = currentConfig.chinese_output;
       storagePathInput.value = currentConfig.storage_path || "";
+      setupStoragePathInput.value = currentConfig.storage_path || "";
       customPromptInput.value = currentConfig.custom_prompt || "";
       textReplacementsInput.value = currentConfig.text_replacements || "";
       showSettingsOnStartupToggle.checked = currentConfig.show_settings_on_startup !== false; // default true
@@ -725,6 +1008,7 @@ async function saveConfig() {
     applyBtn.disabled = true;
     
     await invoke("set_config", { newConfig });
+    await invoke("start_engine");
     
     applyBtn.textContent = dict["btn-apply-success"];
     applyBtn.disabled = true;
@@ -754,16 +1038,17 @@ async function runDependencyChecks(forceShow = false) {
   const currentLang = appLanguageSelect.value || "zh";
   const dict = translations[currentLang] || translations["zh"];
 
-  if (setupStoragePathInput && !setupStoragePathInput.value) {
-    setupStoragePathInput.value = currentConfig?.storage_path || "";
+  if (setupStoragePathInput) {
+    if (!setupStoragePathInput.value || setupStoragePathInput.value.includes("Program Files")) {
+      setupStoragePathInput.value = status.appdata_dir;
+    }
   }
 
   updateUILanguage(currentLang);
 
-  // CPU is always pre-bundled (so CPU engine_exists is true by default). 
-  // For CUDA, we check if the CUDA engine is installed in custom storage folder.
-  const isCudaMode = setupEngineSelect.value === "cuda";
-  const isEngineInstalled = isCudaMode ? status.appdata_engine_exists : status.engine_exists;
+  const selectedEngine = setupEngineSelect.value;
+  const isCudaMode = selectedEngine === "cuda";
+  const engineInstalled = isEngineInstalled(status, selectedEngine);
 
   // Show or hide "Remove CUDA / 移除" button
   if (setupRemoveCudaBtn) {
@@ -774,17 +1059,28 @@ async function runDependencyChecks(forceShow = false) {
     }
   }
 
-  if (isEngineInstalled && status.model_exists && !forceShow) {
+  if (engineInstalled && status.model_exists && !forceShow) {
     overlay.classList.add("hidden");
     return;
   }
 
   overlay.classList.remove("hidden");
+
+  // The native window starts hidden so the tray app stays unobtrusive.
+  // Show it only after the WebView is ready and the setup wizard is known
+  // to be required; showing it earlier from Rust can be lost during startup.
+  try {
+    const appWindow = getCurrentWindow();
+    await appWindow.show();
+    await appWindow.setFocus();
+  } catch (error) {
+    console.error("Failed to show setup window:", error);
+  }
   
   // Render Engine Status
-  engineStatus.textContent = isEngineInstalled ? dict["status-installed"] : dict["status-missing"];
-  engineStatus.style.color = isEngineInstalled ? "var(--accent-green)" : "#ff3c3c";
-  document.getElementById("dep-engine-bar")!.style.width = isEngineInstalled ? "100%" : "0%";
+  engineStatus.textContent = engineInstalled ? dict["status-installed"] : dict["status-missing"];
+  engineStatus.style.color = engineInstalled ? "var(--accent-green)" : "#ff3c3c";
+  document.getElementById("dep-engine-bar")!.style.width = engineInstalled ? "100%" : "0%";
   document.getElementById("dep-engine-text")!.textContent = "";
 
   // Render Model Status
@@ -799,7 +1095,7 @@ async function runDependencyChecks(forceShow = false) {
   }
 
   // Update Start Button
-  if (isEngineInstalled && status.model_exists) {
+  if (engineInstalled && status.model_exists) {
     startBtn.textContent = currentLang === "zh" ? "檢測成功！點此開啟主介面" : "Found! Enter App";
     startBtn.disabled = false;
     startBtn.onclick = async () => {
@@ -809,6 +1105,7 @@ async function runDependencyChecks(forceShow = false) {
         currentConfig.device = setupEngineSelect.value;
         await invoke("set_config", { newConfig: currentConfig });
       }
+      await loadConfig();
       await invoke("start_engine");
       overlay.classList.add("hidden");
       
@@ -875,16 +1172,21 @@ async function runDependencyChecks(forceShow = false) {
       try {
         // Re-fetch live status just before starting
         const liveStatus = await invoke<DependencyStatus>("check_dependencies");
-        const liveIsEngineInstalled = selectedEngine === "cuda" ? liveStatus.appdata_engine_exists : liveStatus.engine_exists;
+        const liveIsEngineInstalled = isEngineInstalled(liveStatus, selectedEngine);
 
         if (!liveIsEngineInstalled) {
           engineStatus.textContent = dict["status-downloading"];
           engineStatus.style.color = "var(--accent-blue)";
           
-          const engineUrl = selectedEngine === "cuda" 
-            ? "https://github.com/travisau/VoiceInput-main/releases/download/v1.0.0/whisper-server-cuda.zip"
-            : "https://github.com/travisau/VoiceInput-main/releases/download/v1.0.0/whisper-server-cpu.zip";
-          
+          let engineUrl = "";
+          if (selectedEngine === "amd") {
+            engineUrl = "https://github.com/nyancodex/whisper-server-vulkan-windows/releases/download/v0.1.0/whisper-server-bundle.zip";
+          } else if (selectedEngine === "cuda") {
+            engineUrl = "https://github.com/travisau/VoiceInput-main/releases/download/v1.0.0/whisper-server-cuda.zip";
+          } else {
+            engineUrl = "https://github.com/travisau/VoiceInput-main/releases/download/v1.0.0/whisper-server-cpu.zip";
+          }
+
           await download(
             engineUrl,
             tempZip,
@@ -895,6 +1197,17 @@ async function runDependencyChecks(forceShow = false) {
 
           engineStatus.textContent = dict["status-extracting"];
           await invoke("extract_zip", { zipPath: tempZip, destDir: appDataBin });
+
+          const installedStatus = await invoke<DependencyStatus>("check_dependencies");
+          if (!isEngineInstalled(installedStatus, selectedEngine)) {
+            const missingComponent = selectedEngine === "amd"
+              ? "ggml-vulkan.dll"
+              : selectedEngine === "cuda"
+                ? "ggml-cuda.dll"
+                : "whisper-server.exe";
+            throw new Error(`Engine archive extracted, but ${missingComponent} was not found in ${appDataBin}`);
+          }
+
           engineStatus.textContent = dict["status-installed"];
           engineStatus.style.color = "var(--accent-green)";
           document.getElementById("dep-engine-bar")!.style.width = "100%";
@@ -920,6 +1233,7 @@ async function runDependencyChecks(forceShow = false) {
         }
 
         startBtn.textContent = dict["btn-download-all-set"];
+        await loadConfig();
         await invoke("start_engine");
         
         setTimeout(() => {
@@ -934,7 +1248,19 @@ async function runDependencyChecks(forceShow = false) {
 
       } catch (error) {
         console.error("Setup failed:", error);
-        await showCustomAlert(`Setup Failed: ${error}`);
+        const errStr = String(error);
+        if (errStr.includes("os error 5") || errStr.includes("存取被拒") || errStr.includes("Access is denied")) {
+          setupStoragePathInput.value = status.appdata_dir;
+          if (currentConfig) {
+            currentConfig.storage_path = status.appdata_dir;
+            await invoke("set_config", { newConfig: currentConfig });
+          }
+          await showCustomAlert(currentLang === "zh"
+            ? `安裝失敗：存取被拒 (os error 5)！\nWindows 不允許非管理員程式寫入 C:\\Program Files。\n\n系統已自動為您更換儲存路徑至 AppData 專用資料夾：\n${status.appdata_dir}\n\n請再次點擊「重試安裝」即可順利下載！`
+            : `Setup Failed: Access Denied (os error 5)!\nWindows prevents writing files into Program Files.\nStorage path has been automatically updated to your user AppData folder:\n${status.appdata_dir}\nPlease click "Retry Setup" to complete download.`);
+        } else {
+          await showCustomAlert(`Setup Failed: ${error}`);
+        }
         startBtn.disabled = false;
         startBtn.textContent = dict["btn-download-retry"];
       }
@@ -1255,60 +1581,53 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const pairs = getDiffPairs(lastTransText, correctedVal);
+    let initWrong = "";
+    let initCorrect = "";
 
+    const pairs = getDiffPairs(lastTransText, correctedVal);
     if (pairs.length > 0) {
-      const confirmOpenManager = await showCustomConfirm(currentLang === "zh"
-        ? `系統自動從您的修改中分析出 ${pairs.length} 個字詞修正對照：\n${pairs.map(p => `• "${p.wrong}" → "${p.correct}"`).join('\n')}\n\n是否開啟管理視窗進行檢視？`
-        : `Automatically extracted ${pairs.length} corrections:\n${pairs.map(p => `• "${p.wrong}" → "${p.correct}"`).join('\n')}\n\nOpen the manager to review and apply?`);
-      
-      if (confirmOpenManager) {
-        const btnManageReplacements = document.getElementById("btn-manage-replacements") as HTMLButtonElement;
-        if (btnManageReplacements) {
-          btnManageReplacements.click();
-          
-          pairs.forEach(pair => {
-            const dup = modalReplacements.find(r => r.wrong === pair.wrong);
-            if (dup) {
-              dup.correct = pair.correct;
-            } else {
-              modalReplacements.push(pair);
-            }
-          });
-          
-          renderReplacementsList();
-          updateCount();
-          
-          if (replacementSearchInput) replacementSearchInput.focus();
-        }
-        return;
+      initWrong = pairs[0].wrong;
+      initCorrect = pairs[0].correct;
+    } else {
+      const diff = extractDifference(lastTransText, correctedVal);
+      if (diff) {
+        initWrong = diff.wrong;
+        initCorrect = diff.correct;
+      } else {
+        initWrong = lastTransText;
+        initCorrect = correctedVal;
       }
     }
 
-    let wrong = "";
-    let correct = "";
-    
-    const diff = extractDifference(lastTransText, correctedVal);
-    if (diff) {
-      wrong = diff.wrong;
-      correct = diff.correct;
-    } else {
-      wrong = lastTransText;
-      correct = correctedVal;
+    const editResult = await showLearningWordEditModal({
+      initialWrong: initWrong,
+      initialCorrect: initCorrect,
+      fullOriginal: lastTransText,
+      fullCorrected: correctedVal,
+      appLanguage: currentLang,
+    });
+
+    if (!editResult) return;
+
+    // 1. Add auto text replacement rule (placed at VERY TOP)
+    if (editResult.addReplacement && editResult.wrong) {
+      const newRule = `${editResult.wrong} -> ${editResult.correct}`;
+      let rules = textReplacementsInput.value.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      rules = rules.filter(r => !r.startsWith(`${editResult.wrong} -> `));
+      rules.unshift(newRule); // Prepend to top!
+      textReplacementsInput.value = rules.join('\n');
     }
 
-    let existingReplacements = textReplacementsInput.value.trim();
-    const newRule = `${wrong} -> ${correct}`;
-    
-    if (existingReplacements) {
-      existingReplacements = existingReplacements + "\n" + newRule;
-    } else {
-      existingReplacements = newRule;
+    // 2. Add custom vocabulary prompt word (placed at VERY TOP)
+    if (editResult.addVocabulary && editResult.correct) {
+      let vocab = customPromptInput.value.split(',').map(w => w.trim()).filter(w => w.length > 0);
+      vocab = vocab.filter(w => w !== editResult.correct);
+      vocab.unshift(editResult.correct); // Prepend to top!
+      customPromptInput.value = vocab.join(', ');
     }
-    
-    textReplacementsInput.value = existingReplacements;
+
     await saveConfig();
-    
+
     const oldText = learnBtn.textContent;
     learnBtn.textContent = dict["btn-learn-success"] || "Learned!";
     learnBtn.disabled = true;
@@ -1353,26 +1672,32 @@ window.addEventListener("DOMContentLoaded", () => {
       // 3. Fetch latest checked state
       try {
         const status = await invoke<DependencyStatus>("check_dependencies");
-        const isCudaMode = setupEngineSelect.value === "cuda";
-        const isEngineInstalled = isCudaMode ? status.appdata_engine_exists : status.engine_exists;
+        const selectedEngine = setupEngineSelect.value;
+        const isCudaMode = selectedEngine === "cuda";
+        const isAmdMode = selectedEngine === "amd";
+        const engineInstalled = isEngineInstalled(status, selectedEngine);
 
-        if (isEngineInstalled) {
+        if (engineInstalled) {
           if (isCudaMode) {
             await showCustomAlert(currentLang === "zh" 
               ? "找到 CUDA 語音引擎檔案！已成功檢測到 whisper-server.exe！" 
               : "CUDA Engine found! Successfully detected whisper-server.exe!");
+          } else if (isAmdMode) {
+            await showCustomAlert(currentLang === "zh"
+              ? "找到 AMD Vulkan 語音引擎！已成功檢測到 whisper-server.exe 及 ggml-vulkan.dll！"
+              : "AMD Vulkan Engine found! Detected whisper-server.exe and ggml-vulkan.dll.");
           } else {
             await showCustomAlert(currentLang === "zh" 
               ? "已採用程式內置之 CPU 語音引擎，免安裝開箱即用！" 
               : "Using built-in CPU Engine. Ready to use out-of-the-box!");
           }
         } else {
-          const expectedPath = storagePath 
-            ? `${storagePath}\\bin\\whisper-server.exe` 
-            : `(預設 AppData)\\bin\\whisper-server.exe`;
+          const expectedPath = storagePath
+            ? `${storagePath}\\bin\\`
+            : `(預設 AppData)\\bin\\`;
           await showCustomAlert(currentLang === "zh"
-            ? `未檢測到本機 CUDA 引擎檔！請確認你已將 CUDA 引擎包解壓至：\n${expectedPath}`
-            : `CUDA Engine not found! Please make sure you have extracted the CUDA engine to:\n${expectedPath}`);
+            ? `未檢測到必要之 GPU 加速組件！請在精靈中點擊「一鍵下載與安裝」自動下載至：\n${expectedPath}`
+            : `GPU Acceleration Component not found! Click "Download & Setup" to install to:\n${expectedPath}`);
         }
       } catch (err) {
         console.error("Failed to check local engine:", err);
@@ -1842,7 +2167,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (dup) {
           dup.correct = correctVal;
         } else {
-          modalReplacements.push({ wrong: wrongVal, correct: correctVal });
+          modalReplacements.unshift({ wrong: wrongVal, correct: correctVal });
         }
         newReplacementWrongInput.value = "";
         newReplacementCorrectInput.value = "";
@@ -2074,7 +2399,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const word = newVocabularyWordInput.value.trim();
       if (word) {
         if (!modalVocabulary.includes(word)) {
-          modalVocabulary.push(word);
+          modalVocabulary.unshift(word);
         }
         newVocabularyWordInput.value = "";
         renderVocabularyList(vocabularySearchInput.value);

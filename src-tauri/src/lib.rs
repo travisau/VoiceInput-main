@@ -155,11 +155,30 @@ fn get_exe_dir() -> PathBuf {
 
 fn get_config_path() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        let mut path = PathBuf::from(appdata);
-        path.push("com.travis.voiceinput");
-        let _ = std::fs::create_dir_all(&path);
-        path.push("config.json");
-        path
+        let appdata_root = PathBuf::from(appdata);
+        let app_dir = appdata_root.join("voiceinput");
+        let config_path = app_dir.join("config.json");
+        let _ = std::fs::create_dir_all(&app_dir);
+
+        // v1.0.0 stored user data under the reverse-domain identifier. When
+        // upgrading, preserve that existing engine/model location so users do
+        // not need to download the large model again.
+        if !config_path.exists() {
+            let legacy_dir = appdata_root.join("com.travis.voiceinput");
+            let legacy_config_path = legacy_dir.join("config.json");
+            if let Ok(content) = std::fs::read_to_string(&legacy_config_path) {
+                if let Ok(mut config) = serde_json::from_str::<Config>(&content) {
+                    if config.storage_path.trim().is_empty() {
+                        config.storage_path = legacy_dir.to_string_lossy().to_string();
+                    }
+                    if let Ok(migrated) = serde_json::to_string_pretty(&config) {
+                        let _ = std::fs::write(&config_path, migrated);
+                    }
+                }
+            }
+        }
+
+        config_path
     } else {
         get_exe_dir().join("config.json")
     }
@@ -624,7 +643,7 @@ fn handle_recording_stopped(
     std::thread::spawn(move || {
         if let Some(mut text) = send_to_whisper(&wav_str_clone, cantonese_mode) {
             let elapsed = start.elapsed();
-            
+
             let state = app_handle_clone.state::<AppState>();
             let text_replacements = if let Ok(cfg) = state.config.lock() {
                 cfg.text_replacements.clone()
@@ -659,7 +678,7 @@ fn handle_recording_stopped(
             add_log(&app_handle_clone, "Failed to transcribe".to_string());
             play_audio_cue("error", &sound_mode_clone);
         }
-        
+
         if let Some(tray) = app_handle_clone.tray_by_id("main_tray") {
             let _ = tray.set_icon(Some(tray_ready_clone));
         }
@@ -742,7 +761,58 @@ fn restart_whisper_server(state: &AppState) {
             } else {
                 (false, "cpu".to_string(), "".to_string(), 0)
             };
- 
+
+            // Safely manage CUDA DLLs to prevent hijacking NVIDIA GPU when device mode is NOT "cuda"
+            let check_dirs = vec![
+                base_dir.join("bin"),
+                state.resource_dir.join("bin"),
+                cwd.join("bin"),
+                cwd.join("src-tauri").join("bin"),
+            ];
+
+            for dir in check_dirs {
+                if dir.exists() {
+                    let cuda_dll = dir.join("ggml-cuda.dll");
+                    let cuda_disabled = dir.join("ggml-cuda.dll.disabled");
+
+                    if device_mode == "cuda" {
+                        if !cuda_dll.exists() && cuda_disabled.exists() {
+                            let _ = std::fs::rename(&cuda_disabled, &cuda_dll);
+                        }
+                    } else {
+                        if cuda_dll.exists() {
+                            add_log(&state.app_handle, format!("Disabling CUDA DLL in {:?} to prevent locking NVIDIA GPU...", dir));
+                            let _ = std::fs::rename(&cuda_dll, &cuda_disabled);
+                        }
+                    }
+                }
+            }
+
+            let engine_dir = final_exe.parent().unwrap_or_else(|| std::path::Path::new(""));
+            if matches!(device_mode.as_str(), "amd" | "vulkan")
+                && !engine_dir.join("ggml-vulkan.dll").exists()
+            {
+                add_log(
+                    &state.app_handle,
+                    format!(
+                        "AMD Vulkan engine is incomplete: {:?} is missing. Server was not started to avoid a silent CPU fallback.",
+                        engine_dir.join("ggml-vulkan.dll")
+                    ),
+                );
+                return;
+            }
+
+            if device_mode == "cuda" && !engine_dir.join("ggml-cuda.dll").exists() {
+                add_log(
+                    &state.app_handle,
+                    format!(
+                        "CUDA engine is incomplete: {:?} is missing. Server was not started to avoid a silent CPU fallback.",
+                        engine_dir.join("ggml-cuda.dll")
+                    ),
+                );
+                return;
+            }
+
             let mut prompt = if cantonese_mode {
                 "請精準保留講者的廣東話口語字詞（例如：嘅、喺、咗、唔、佢、㗎、喇），不要翻譯成書面語：".to_string()
             } else {
@@ -753,7 +823,12 @@ fn restart_whisper_server(state: &AppState) {
                 prompt = format!("{} 常用字詞：{}。", prompt, custom_prompt.trim());
             }
 
-            add_log(&state.app_handle, format!("Starting whisper server with model: {:?} on {}, threads: {}", final_model, device_mode, cpu_threads));
+            let device_label = match device_mode.as_str() {
+                "amd" | "vulkan" => "AMD GPU (Vulkan)",
+                "cuda" => "NVIDIA GPU (CUDA)",
+                _ => "CPU Mode",
+            };
+            add_log(&state.app_handle, format!("Starting whisper server with model: {:?} on {}, threads: {}", final_model, device_label, cpu_threads));
             
             let mut cmd = Command::new(&final_exe);
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: Hides console window
@@ -830,7 +905,7 @@ fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>, lang: &str) -> 
     } else {
         ("Start / Stop Recording", "Settings", "Quit")
     };
-    
+
     let toggle_i = MenuItemBuilder::with_id("toggle", toggle_txt).build(app)?;
     let settings_i = MenuItemBuilder::with_id("settings", settings_txt).build(app)?;
     let quit_i = MenuItemBuilder::with_id("quit", quit_txt).build(app)?;
@@ -840,18 +915,10 @@ fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>, lang: &str) -> 
 
 #[tauri::command]
 fn set_config(state: tauri::State<AppState>, new_config: Config) -> Result<(), String> {
-    let mut needs_restart = false;
     let mut autostart_changed = false;
     let mut new_autostart = false;
     
     if let Ok(mut cfg) = state.config.lock() {
-        if cfg.cantonese_mode != new_config.cantonese_mode || 
-           cfg.model != new_config.model ||
-           cfg.cpu_threads != new_config.cpu_threads ||
-           cfg.device != new_config.device
-        {
-            needs_restart = true;
-        }
         if cfg.start_at_login != new_config.start_at_login {
             autostart_changed = true;
             new_autostart = new_config.start_at_login;
@@ -874,10 +941,6 @@ fn set_config(state: tauri::State<AppState>, new_config: Config) -> Result<(), S
         }
     }
 
-    if needs_restart {
-        restart_whisper_server(&state);
-    }
-    
     Ok(())
 }
 
@@ -932,6 +995,10 @@ pub struct DependencyStatus {
     pub model_exists: bool,
     pub appdata_dir: String,
     pub appdata_engine_exists: bool,
+    pub vulkan_exists: bool,
+    pub appdata_vulkan_exists: bool,
+    pub cuda_exists: bool,
+    pub appdata_cuda_exists: bool,
 }
 
 #[tauri::command]
@@ -955,12 +1022,24 @@ fn check_dependencies(state: tauri::State<AppState>) -> DependencyStatus {
     let appdata_engine_exists = appdata_exe.exists();
     let engine_exists = appdata_engine_exists || resource_exe.exists();
     let model_exists = appdata_model.exists();
+
+    let appdata_vulkan_exists = base_dir.join("bin").join("ggml-vulkan.dll").exists();
+    let resource_vulkan_exists = state.resource_dir.join("bin").join("ggml-vulkan.dll").exists();
+    let vulkan_exists = appdata_vulkan_exists || resource_vulkan_exists;
+
+    let appdata_cuda_exists = base_dir.join("bin").join("ggml-cuda.dll").exists() || base_dir.join("bin").join("ggml-cuda.dll.disabled").exists();
+    let resource_cuda_exists = state.resource_dir.join("bin").join("ggml-cuda.dll").exists() || state.resource_dir.join("bin").join("ggml-cuda.dll.disabled").exists();
+    let cuda_exists = appdata_cuda_exists || resource_cuda_exists;
     
     DependencyStatus {
         engine_exists,
         model_exists,
-        appdata_dir: base_dir.to_string_lossy().to_string(),
+        appdata_dir: state.app_data_dir.to_string_lossy().to_string(),
         appdata_engine_exists,
+        vulkan_exists,
+        appdata_vulkan_exists,
+        cuda_exists,
+        appdata_cuda_exists,
     }
 }
 
@@ -972,9 +1051,19 @@ fn download_dependency(
     event_name: String
 ) -> Result<(), String> {
     std::thread::spawn(move || {
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("VoiceInput/1.0")
+            .build()
+            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+
         let mut response = match client.get(&url).send() {
-            Ok(res) => res,
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let _ = window.emit(&event_name, serde_json::json!({ "error": format!("HTTP error: {}", res.status()) }));
+                    return;
+                }
+                res
+            },
             Err(e) => {
                 let _ = window.emit(&event_name, serde_json::json!({ "error": e.to_string() }));
                 return;
@@ -1035,6 +1124,11 @@ fn download_dependency(
             }
         }
         
+        if total_size > 0 && downloaded < total_size {
+            let _ = window.emit(&event_name, serde_json::json!({ "error": format!("Download incomplete: got {} of {} bytes", downloaded, total_size) }));
+            return;
+        }
+
         let _ = window.emit(&event_name, serde_json::json!({
             "downloaded": downloaded,
             "total": total_size,
@@ -1076,6 +1170,31 @@ fn extract_zip(zip_path: String, dest_dir: String) -> Result<(), String> {
         }
     }
     
+    // Flatten subdirectories if files were extracted inside a nested subfolder
+    if let Ok(entries) = std::fs::read_dir(&dest_dir_buf) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                    for sub_entry in sub_entries.flatten() {
+                        let sub_path = sub_entry.path();
+                        if sub_path.is_file() {
+                            let target_file = dest_dir_buf.join(sub_path.file_name().unwrap());
+                            let _ = std::fs::copy(&sub_path, &target_file);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Ensure server.exe is also mirrored to whisper-server.exe if present
+    let server_exe = dest_dir_buf.join("server.exe");
+    let whisper_server_exe = dest_dir_buf.join("whisper-server.exe");
+    if server_exe.exists() && !whisper_server_exe.exists() {
+        let _ = std::fs::copy(&server_exe, &whisper_server_exe);
+    }
+
     let _ = std::fs::remove_file(zip_path_buf);
     Ok(())
 }

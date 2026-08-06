@@ -1,80 +1,112 @@
-# 🎙️ VoiceInput
+# VoiceInput
 
-VoiceInput is a lightweight, highly efficient, and secure offline speech-to-text tray application for Windows. Powered by Tauri, Rust, TypeScript, and Whisper AI, it runs quietly in your system tray and pastes text directly into your active window when you trigger the hotkey.
+VoiceInput is a lightweight Windows tray application for private, offline speech-to-text. It is built with Tauri, Rust, TypeScript, and whisper.cpp. Press a hotkey, speak, and VoiceInput pastes the transcription into the active application.
 
-VoiceInput 是一款專為 Windows 開發的輕量、高效且安全的**離線語音輸入法工具**。基於 Tauri、Rust、TypeScript 和 Whisper AI 技術，它能常駐於系統工作列（System Tray），並在您按下快捷鍵說話後，將辨識出的文字直接貼入目前游標所在的任何輸入框。
+VoiceInput 是一款輕量、私隱優先的 Windows 離線語音輸入工具。程式以 Tauri、Rust、TypeScript 及 whisper.cpp 製作。按下快捷鍵開始說話，完成後文字會自動貼到目前使用中的程式。
 
----
+## Features / 功能
 
-## ✨ Features / 核心功能
+- **Offline and private / 離線及保障私隱**
+  - After the initial engine and model setup, speech recognition runs locally. Voice recordings are not uploaded to a transcription service.
+  - 完成首次引擎及模型設定後，語音辨識會在本機運行，不會將錄音上傳到語音轉錄服務。
 
-*   **🎙️ Offline & Secure / 離線運作，隱私安全**
-    All audio processing is done entirely on your local machine. No voice data is uploaded to any server.
-    所有語音識別都在您的電腦本地端完成，無須聯網，語音隱私絕對安全。
-    
-*   **🚀 Dynamic CPU/GPU Selector / 靈活自選 CPU 或 GPU 加速**
-    Choose between CPU Edition (highly compatible) or NVIDIA GPU CUDA Edition (blazing fast) during setup or in settings.
-    在安裝或設定中可自由選擇「CPU 引擎」或「NVIDIA GPU CUDA 引擎」加速，享受極速打字體驗。
+- **CPU, NVIDIA CUDA, and AMD Vulkan / 支援 CPU、NVIDIA CUDA 及 AMD Vulkan**
+  - Choose the engine that matches the computer during first-run setup or in Settings.
+  - 可在首次安裝精靈或設定頁選擇適合電腦的運算引擎。
+  - AMD mode verifies that the Vulkan runtime is present instead of silently falling back to CPU.
+  - AMD 模式會檢查 Vulkan runtime，避免安裝不完整時靜默改用 CPU。
 
-*   **📂 Custom Storage Path & Local Import / 自訂儲存路徑與本地離線安裝**
-    Select where to save large engine and model files. Bypasses internet downloads by importing local `.zip` and `.bin` files directly in the Setup Wizard.
-    支援自定義安裝路徑（如 D 碟），並可直接在安裝引導中導入本地的引擎與模型檔案，秒速完成離線安裝。
+- **Cantonese mode and Chinese output / 廣東話模式及中文輸出**
+  - Supports Cantonese prompts and Traditional Chinese, Simplified Chinese, or original model output.
+  - 支援廣東話提示，以及繁體中文、簡體中文或模型原始文字輸出。
 
-*   **📝 Dedicated Learning Tab / 專屬字詞學習與糾錯機制**
-    *   **Correct Last Sentence / 修正上一句**: Automatically compares your correction with the misheard transcript, extracts the wrong/correct pair, and adds it to your database.
-        自動對比上一句識別內容與修正內容，提取出聽錯的字詞並自動學會！
-    *   **Custom Vocabulary / 常用詞彙學習庫**: Input names, product terms, and specific nouns to teach the AI.
-        輸入您常用的專有名詞、姓名等（以逗號隔開），讓 AI 越用越精準。
-    *   **Text Corrections / 糾錯對照表**: Set up custom character replacement rules (e.g. `崔斯 -> Travis`).
-        自訂字詞更換規則，自動將聽錯的字替換成正確的字。
+- **Custom vocabulary and text corrections / 自訂字詞及文字修正**
+  - Add names, product terms, and replacement rules to improve everyday dictation.
+  - 可加入人名、產品名稱及文字取代規則，改善日常語音輸入。
 
-*   **💾 Settings Backup & Migration / 資料備份與移轉**
-    Easily export all hotkeys, system settings, and custom learnings to a light JSON file, and import them on a new computer.
-    一鍵匯出所有系統配置與字詞學習庫，在新電腦上匯入即可無縫接軌。
+- **Settings backup and migration / 設定備份及轉移**
+  - Export or import hotkeys, application settings, vocabulary, and correction rules as JSON.
+  - 可用 JSON 匯出或匯入快捷鍵、程式設定、自訂字詞及修正規則。
 
-*   **🔊 Audio Cues & Sound Choices / 語音音效與提示音**
-    Choose from Modern Synths, Retro Beeps, or Muted mode for start, success, and error notifications.
-    內建現代合成音、復古嗶嗶聲與靜音模式，提供開始、成功與出錯的輕聲提示音。
+- **Local file import / 本地檔案匯入**
+  - The setup wizard can import compatible engine ZIP and Whisper model BIN files for offline deployment.
+  - 安裝精靈可匯入兼容的引擎 ZIP 及 Whisper 模型 BIN，方便離線部署。
 
----
+## System requirements / 系統需求
 
-## ⚙️ System Requirements / 系統要求
+- Windows 10 or Windows 11, 64-bit
+- Approximately 1.2 GB of free space for the Whisper model and local engine
+- One of the following:
+  - A modern x64 CPU
+  - An NVIDIA GPU with a compatible CUDA driver
+  - An AMD GPU with a working Vulkan driver
 
-*   **OS**: Windows 10 / 11 (64-bit)
-*   **Hardware**: 
-    *   **CPU Edition**: Any modern x64 CPU.
-    *   **NVIDIA GPU Edition**: Requires an NVIDIA graphics card supporting CUDA.
-*   **Space**: Approximately 1.2 GB of free disk space (for the Whisper large model and local engine server).
+已在 AMD Radeon RX 5700 XT 上驗證 Vulkan 加速，日誌顯示 `use gpu = 1` 及 `using Vulkan0 backend`。
 
----
+## Install / 安裝
 
-## 🚀 How to Run & Build / 開發與建置
+1. Download `VoiceInput_1.0.4_x64-setup.exe` from [GitHub Releases](https://github.com/travisau/VoiceInput-main/releases).
+2. Run the installer and approve the Windows administrator prompt.
+3. VoiceInput is installed for all users at:
 
-### Prerequisites / 前置需求
-*   [Node.js](https://nodejs.org/) (v18+)
-*   [Rust & Cargo](https://www.rust-lang.org/tools/install)
-*   C++ Build Tools (for Tauri bundler)
+   ```text
+   C:\Program Files\VoiceInput
+   ```
 
-### Development / 開發模式
-```bash
-# Install NPM dependencies / 安裝依賴
+4. On first launch, the setup wizard uses the current Windows user's data folder:
+
+   ```text
+   %AppData%\voiceinput
+   ```
+
+5. Select CPU, NVIDIA CUDA, or AMD Vulkan. The Whisper Large-v3 Q5 model is approximately 1.08 GB and is downloaded during first-run setup if it is not already installed.
+
+中文安裝摘要：下載 `VoiceInput_1.0.4_x64-setup.exe`，以管理員權限完成安裝。程式會安裝到 `C:\Program Files\VoiceInput`，模型、設定及可下載引擎會儲存在 `%AppData%\voiceinput`，毋須安裝到其他磁碟。
+
+## Fresh-install flow / 新用戶首次安裝流程
+
+On a clean profile, VoiceInput opens the setup wizard, selects the per-user AppData folder automatically, checks the selected engine and model, then starts the engine once after setup is complete.
+
+全新使用者第一次開啟程式時，會看到安裝引導精靈。程式會自動選用該使用者的 AppData 資料夾，檢查所選引擎及模型，完成後只啟動一次語音引擎。
+
+## Development / 開發
+
+### Prerequisites / 所需工具
+
+- [Node.js](https://nodejs.org/) 18 or later
+- [Rust and Cargo](https://www.rust-lang.org/tools/install)
+- Microsoft C++ Build Tools required by Tauri
+
+### Run in development mode / 開發模式
+
+```powershell
 npm install
-
-# Run application in dev mode / 啟動開發模式
 npm run tauri dev
 ```
 
-### Production Build / 打包發佈
-To package the final installer (MSI):
-```bash
-npm run tauri build
+### Build the Windows installer / 建立 Windows 安裝程式
+
+The supported release artifact is the per-machine NSIS executable:
+
+```powershell
+npm run tauri build -- --bundles nsis
 ```
-The output `.msi` file will be generated in `src-tauri/target/release/bundle/msi/`.
 
----
+Output:
 
-## 👥 Designer Credit / 設計者資訊
+```text
+src-tauri\target\release\bundle\nsis\VoiceInput_<version>_x64-setup.exe
+```
 
-*   **Designer / 設計者**: Travis Au
-*   **Email / 電郵**: [contact@travis-studio.com](mailto:contact@travis-studio.com)
-*   **Website / 網站**: [https://travis-studio.com](https://travis-studio.com)
+## Project structure / 專案結構
+
+- `src/` — TypeScript frontend and first-run setup flow
+- `src-tauri/src/` — Rust application, recording, configuration, and engine management
+- `src-tauri/bin/` — engine runtime files bundled into release builds
+- `src-tauri/tauri.conf.json` — installer and bundled-resource configuration
+
+## Credits / 製作資料
+
+- Designer / 設計者：Travis Au
+- Email / 電郵：[contact@travis-studio.com](mailto:contact@travis-studio.com)
+- Website / 網站：[https://travis-studio.com](https://travis-studio.com)
